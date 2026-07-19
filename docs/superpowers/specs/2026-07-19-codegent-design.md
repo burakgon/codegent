@@ -21,7 +21,8 @@
 4. **Task title is the primary identity everywhere;** branch name is a secondary mono subline. Every surface uses the same title for the same object.
 5. **Minimal chrome, no slop:** no emoji in chrome (Lucide stroke SVGs only), no left accent bars, no colored frames as state, no bouncing animations, no condensed fonts, weights ≤500 (650 only inside badge micro-caps). Hover-revealed affordances. Single accent (violet) + semantic amber/red/green + per-worktree identity colors as small dots only.
 6. **Zero-friction defaults:** install asks nothing; hosted relay free and unlimited; no accounts.
-7. **No telemetry in v1.** The daemon phones home for nothing except self-update checks (opt-out flag). Stated plainly in the README — part of the trust story.
+7. **Latest stable everything.** Every dependency, toolchain component, and referenced technology is adopted at its **latest stable release** at integration time and kept current thereafter; version numbers in this spec and in plans are minimum floors / illustrations, never pins. Resolve real versions at execution time (`bun pm view <pkg> version`).
+8. **No telemetry in v1.** The daemon phones home for nothing except self-update checks (opt-out flag). Stated plainly in the README — part of the trust story.
 
 ## 3. Architecture
 
@@ -36,8 +37,8 @@
 | Component | Stack | Notes |
 |---|---|---|
 | **Daemon** | Bun + TypeScript, single compiled binary | PTY manager (Bun-native `Bun.spawn({terminal})`, ≥1.3.5; Rust portable-pty sidecar as fallback — node-pty under Bun is a dead end), git worktree manager, orchestrator engine, SQLite (`bun:sqlite`) at `~/.codegent/`, MCP server, relay client, serves UI on localhost |
-| **Web UI** | React + Vite + TS | **ghostty-web** (`coder/ghostty-web` — Ghostty VT core in WASM) as the terminal renderer — the only terminal engine; no xterm.js anywhere. Tailwind + Radix/shadcn, Motion (animations — library, never hand-rolled), Lucide icons, TanStack Query + one multiplexed WS |
-| **Relay** | Bun, single binary + Docker image | Zero-knowledge frame router; serves the same UI build for remote; hosted at `relay.codegent.io` (GCP e2-small + Caddy + Compose); self-host = same binary |
+| **Web UI** | React + Vite + TS | **ghostty-web** (`coder/ghostty-web` — Ghostty VT core in WASM) as the terminal renderer — the only terminal engine; no xterm.js anywhere. **Consumed as a source build**: the npm release is stale, so we vendor the repo as a git submodule (`vendor/ghostty-web`) pinned to a recent `main` commit, build it ourselves (toolchain recorded in `docs/research/ghostty-web-spike.md`), and bump the pin deliberately — "latest stable" here means latest healthy main, not the old tag. Tailwind + Radix/shadcn, Motion (animations — library, never hand-rolled), Lucide icons, TanStack Query + one multiplexed WS |
+| **Relay** | Bun, single binary + Docker image | Zero-knowledge frame router; serves the same UI build for remote; hosted at `relay.codegent.io` — GCP **c4a (Axion ARM) + Debian 13 "trixie"** in `europe-west4-a` (mirrors the owner's existing fleet; provisioned via gcloud, start at c4a-standard-1/2 and scale as needed), Caddy for TLS, relay via its Docker image; the **codegent.io website is served from the same VM** (Caddy static). Self-host = same binary |
 | **Adapters** | in daemon | Claude Code (hooks+MCP), Codex (official hooks+MCP), ACP client class |
 | **Installer/CLI** | shell script + compiled CLI | see §14 |
 
@@ -244,6 +245,8 @@ Zero questions: detect OS/arch → install binary to `~/.codegent/bin` → PATH 
 - **CI:** Buildkite (free for OSS; our own fast runners — Linux on cloud VMs, macOS on a Mac mini) — macOS + Linux matrix; release builds in the same pipeline. GitHub Actions deliberately avoided (slow); Cirrus CI shut down 2026-06. Nightly **agent contract tests** run the real CLIs against the truth table (§4.1) to catch hook-contract churn.
 
 ## 16. Milestones & launch
+
+> **Execution mapping:** each milestone ships via a dedicated implementation plan under `docs/superpowers/plans/` — Plan 1 = v0.1 (core, written: `2026-07-19-codegent-v01-core.md`), Plan 2 = v0.2 (orchestration + adapters), Plan 3 = v0.3 (relay + review + install), Plan 4 = v0.4→v1.0 (plugins + polish + launch). Mobile (§13) gets its own plan post-launch (v1.1). Plans 2–4 are written just-in-time, folding in learnings from the previous plan's execution.
 
 - **v0.1:** daemon+UI localhost; terminal + worktrees + board manual mode (no orchestration).
 - **v0.2:** orchestrator + Claude Code adapter end-to-end; completion truth table; error/recovery actions. Codex adapter.
