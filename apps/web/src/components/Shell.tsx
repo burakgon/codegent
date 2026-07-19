@@ -1,7 +1,7 @@
 import React, { createContext, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Project } from "@codegent/protocol";
-import { api, connectWs, type CgSocket } from "../api";
+import { api, connectWs, type CgSocket, type WsState } from "../api";
 import { bindKeys } from "../keys";
 import { Sidebar } from "./Sidebar";
 import { Board } from "./Board";
@@ -23,6 +23,32 @@ export function Shell() {
     if (ev.t === "project") qc.invalidateQueries({ queryKey: ["projects"] });
   }), []);
 
+  // The strip appears only once "down" has persisted >1s — an instant
+  // reconnect never flashes it. "down" is stable across retry attempts
+  // (api.ts state machine), so the timer isn't reset by failed attempts.
+  const [lost, setLost] = useState(false);
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | null = null;
+    const apply = (s: WsState) => {
+      if (s === "down") t ??= setTimeout(() => setLost(true), 1000);
+      else {
+        if (t) { clearTimeout(t); t = null; }
+        setLost(false);
+      }
+    };
+    apply(socket.state);
+    const offState = socket.onState(apply);
+    // A reopened socket may have missed any number of events — refetch the
+    // world. Terminal re-subs are the socket's own job (handler map).
+    const offReconnect = socket.onReconnect(() => qc.invalidateQueries());
+    return () => {
+      offState();
+      offReconnect();
+      if (t) clearTimeout(t);
+      socket.close(); // clears handlers/queue/timers — no retry loop survives
+    };
+  }, [socket]);
+
   const projects = useQuery({ queryKey: ["projects"], queryFn: () => api.get<Project[]>("/api/projects") });
   useEffect(() => {
     if (!projectId && projects.data?.length) setProjectId(projects.data[0].id);
@@ -35,37 +61,44 @@ export function Shell() {
 
   const active = projects.data?.find(p => p.id === projectId);
   return (
-    <div style={{ display: "flex", height: "100vh" }}>
-      <Sidebar projects={projects.data ?? []} activeId={projectId} onSelect={setProjectId} />
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "10px 14px", borderBottom: "1px solid var(--surface-2)", background: "var(--bg-deep)" }}>
-          <span style={{ fontSize: 13, fontWeight: 500 }}>{active?.name ?? "—"}</span>
-          <div style={{ display: "flex", gap: 2, background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 8, padding: 2 }}>
-            {(["board", "terminal", "diff"] as View[]).map((v, i) => (
-              <span key={v} onClick={() => setView(v)}
-                style={{ padding: "5px 14px", borderRadius: 6, cursor: "pointer", fontSize: 12,
-                  background: view === v ? "var(--violet)" : "transparent",
-                  color: view === v ? "#fff" : "var(--ctrl)", fontWeight: view === v ? 500 : 400 }}>
-                {v[0].toUpperCase() + v.slice(1)} <b style={{ opacity: .55, fontWeight: 400 }}>{i + 1}</b>
-              </span>
-            ))}
-          </div>
-          <span onClick={() => setPaletteOpen(true)}
-            style={{ marginLeft: "auto", fontSize: 11, color: "var(--ctrl)", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, padding: "5px 11px", cursor: "pointer" }}>
-            K palette
-          </span>
+    <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
+      {lost && (
+        <div style={{ flexShrink: 0, textAlign: "center", fontSize: 11, padding: "4px 14px", color: "var(--amber)", background: "var(--surface)", borderBottom: "1px solid var(--surface-2)" }}>
+          connection lost — retrying
         </div>
-        {active && projectId ? (
-          <AppCtx.Provider value={{ projectId, view, setView, socket }}>
-            {view === "board" && <Board />}
-            {view === "terminal" && <TerminalView project={active} />}
-            {view === "diff" && <div style={{ display: "grid", placeItems: "center", flex: 1, color: "var(--dim)" }}>nothing to review</div>}
-          </AppCtx.Provider>
-        ) : (
-          // belt-and-braces: the ws "project" event also invalidates, but this
-          // covers the local tab even if the socket is down
-          <AddFirstProject onDone={id => { qc.invalidateQueries({ queryKey: ["projects"] }); setProjectId(id); }} />
-        )}
+      )}
+      <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
+        <Sidebar projects={projects.data ?? []} activeId={projectId} onSelect={setProjectId} />
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "10px 14px", borderBottom: "1px solid var(--surface-2)", background: "var(--bg-deep)" }}>
+            <span style={{ fontSize: 13, fontWeight: 500 }}>{active?.name ?? "—"}</span>
+            <div style={{ display: "flex", gap: 2, background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 8, padding: 2 }}>
+              {(["board", "terminal", "diff"] as View[]).map((v, i) => (
+                <span key={v} onClick={() => setView(v)}
+                  style={{ padding: "5px 14px", borderRadius: 6, cursor: "pointer", fontSize: 12,
+                    background: view === v ? "var(--violet)" : "transparent",
+                    color: view === v ? "#fff" : "var(--ctrl)", fontWeight: view === v ? 500 : 400 }}>
+                  {v[0].toUpperCase() + v.slice(1)} <b style={{ opacity: .55, fontWeight: 400 }}>{i + 1}</b>
+                </span>
+              ))}
+            </div>
+            <span onClick={() => setPaletteOpen(true)}
+              style={{ marginLeft: "auto", fontSize: 11, color: "var(--ctrl)", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, padding: "5px 11px", cursor: "pointer" }}>
+              K palette
+            </span>
+          </div>
+          {active && projectId ? (
+            <AppCtx.Provider value={{ projectId, view, setView, socket }}>
+              {view === "board" && <Board />}
+              {view === "terminal" && <TerminalView project={active} />}
+              {view === "diff" && <div style={{ display: "grid", placeItems: "center", flex: 1, color: "var(--dim)" }}>nothing to review</div>}
+            </AppCtx.Provider>
+          ) : (
+            // belt-and-braces: the ws "project" event also invalidates, but this
+            // covers the local tab even if the socket is down
+            <AddFirstProject onDone={id => { qc.invalidateQueries({ queryKey: ["projects"] }); setProjectId(id); }} />
+          )}
+        </div>
       </div>
       {paletteOpen && <Palette onClose={() => setPaletteOpen(false)} onJump={(pid, v) => { setProjectId(pid); setView(v); setPaletteOpen(false); }} />}
     </div>

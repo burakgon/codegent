@@ -17,6 +17,11 @@ const ensureInit = () => (wasmReady ??= init().catch(e => { wasmReady = null; th
 const cssColor = (token: string) =>
   getComputedStyle(document.documentElement).getPropertyValue(token).trim();
 
+// Full clear — home, clear screen, clear scrollback (spike §3 caveat 1).
+// Written on mount (upstream stale-memory bug) and again before every ws
+// re-sub, so the replayed ring snapshot always lands on a clean screen.
+const SANITIZE = "\x1b[H\x1b[2J\x1b[3J";
+
 export function GhosttyTerm({ sid, focused, onFocus }: { sid: string; focused: boolean; onFocus: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -47,7 +52,7 @@ export function GhosttyTerm({ sid, focused, onFocus }: { sid: string; focused: b
       // Upstream stale-memory bug: a fresh terminal can start with a disposed
       // one's screen contents, and reset() does not clear it. Sanitize before
       // any bytes arrive (spike §3 caveat 1).
-      term.write("\x1b[H\x1b[2J\x1b[3J");
+      term.write(SANITIZE);
       // Real cell metrics via FitAddon (spike-recorded API) instead of
       // guessed px-per-cell divisors; observeResize() re-fits on pane resize.
       const fit = new FitAddon();
@@ -64,8 +69,15 @@ export function GhosttyTerm({ sid, focused, onFocus }: { sid: string; focused: b
       const offBytes = socket.sub(sid, bytes => {
         if (bytes.length > 0) term.write(bytes);
       });
+      // After a reconnect the socket re-subs this sid from its handler map
+      // and the server replays the full ring snapshot; onReconnect callbacks
+      // run before those re-subs go out (api.ts contract), so this write is
+      // always enqueued into the term ahead of the snapshot — same rule as
+      // mount, or the replay lands on top of the old screen.
+      const offReconnect = socket.onReconnect(() => term.write(SANITIZE));
       socket.resize(sid, term.cols, term.rows); // sync the PTY even if fit() no-oped
       cleanup = () => {
+        offReconnect(); // this pane must not sanitize after teardown began
         offBytes(); // detach BEFORE dispose — no bytes may hit a disposed terminal
         onData.dispose();
         onResize.dispose();
