@@ -81,8 +81,8 @@ function AddFirstProject({ onDone }: { onDone: (id: string) => void }) {
           onKeyDown={async e => {
             if (e.key !== "Enter") return;
             const name = path.replace(/\/+$/, "").split("/").pop() || "project";
-            const r: any = await api.post("/api/projects", { name, path });
-            if (r.error) setErr(r.error); else onDone(r.id);
+            try { onDone((await api.post<Project>("/api/projects", { name, path })).id); }
+            catch (err) { setErr(err instanceof Error ? err.message : String(err)); }
           }}
           style={{ width: "100%", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 6, color: "var(--text)", padding: "8px 10px", fontSize: 12, outline: "none" }} />
         {err && <div style={{ color: "var(--red)", fontSize: 11, marginTop: 6 }}>{err}</div>}

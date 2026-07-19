@@ -4,10 +4,16 @@ import { api } from "../api";
 
 const PHASES: CardPhase[] = ["queued", "running", "waiting", "review", "done", "cancelled"];
 
-export function CardView({ card, onChanged }: { card: Card; onChanged: () => void }) {
+export function CardView({ card, onChanged, onError }: { card: Card; onChanged: () => void; onError: (e: unknown) => void }) {
   const [menu, setMenu] = useState(false);
-  const move = async (phase: CardPhase) => { await api.patch(`/api/cards/${card.id}`, { phase }); setMenu(false); onChanged(); };
-  const del = async () => { await api.del(`/api/cards/${card.id}`); onChanged(); };
+  const move = async (phase: CardPhase) => {
+    try { await api.patch(`/api/cards/${card.id}`, { phase }); setMenu(false); onChanged(); }
+    catch (e) { setMenu(false); onError(e); }
+  };
+  const del = async () => {
+    try { await api.del(`/api/cards/${card.id}`); onChanged(); }
+    catch (e) { onError(e); }
+  };
   return (
     <div style={{ position: "relative", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 12px", marginBottom: 8 }}
       onMouseLeave={() => setMenu(false)}>

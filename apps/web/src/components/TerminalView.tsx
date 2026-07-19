@@ -34,19 +34,17 @@ export function TerminalView({ project }: { project: Project }) {
         const w = worktrees.data!.find(w => w.id === t.id)!;
         cwd = w.path; worktreeId = w.id; title = w.branch;
       } else if (t.kind === "new") {
-        // Daemon errors come back as { error } json — don't open a shell in the
-        // wrong cwd on a failed worktree creation.
-        const w = await api.post<Worktree | { error: string }>(`/api/projects/${projectId}/worktrees`, { name: t.name, base: t.base });
-        if (!("id" in w)) { setErr(w.error); return; }
+        // api.post throws on daemon { error } responses — a failed worktree
+        // creation must not fall through to opening a shell in the wrong cwd.
+        const w = await api.post<Worktree>(`/api/projects/${projectId}/worktrees`, { name: t.name, base: t.base });
         qc.invalidateQueries({ queryKey: ["worktrees", projectId] });
         cwd = w.path; worktreeId = w.id; title = w.branch;
       }
-      const meta = await api.post<SessionMeta | { error: string }>(`/api/projects/${projectId}/sessions`, { cwd, worktreeId, title });
-      if (!("id" in meta)) { setErr(meta.error); return; }
+      const meta = await api.post<SessionMeta>(`/api/projects/${projectId}/sessions`, { cwd, worktreeId, title });
       qc.invalidateQueries({ queryKey: ["sessions", projectId] });
       show(meta.id);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e)); // e.g. daemon unreachable
+      setErr(e instanceof Error ? e.message : String(e)); // api error body, or daemon unreachable
     }
   };
 

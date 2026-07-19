@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useRef } from "react";
+import React, { useContext, useEffect, useRef, useState } from "react";
 // Real engine API per docs/research/ghostty-web-spike.md (Task 3):
 // `await init()` loads the shared WASM before the first `new Terminal`;
 // onData/onResize are IEvent<T> — subscribing returns an IDisposable.
@@ -6,9 +6,11 @@ import { init, Terminal, FitAddon } from "ghostty-web";
 import { AppCtx } from "./Shell";
 
 // Upstream init() has no concurrent-call guard (two panes mounting at once
-// would each run Ghostty.load()) — single-flight it here.
+// would each run Ghostty.load()) — single-flight it here. A rejection must
+// not be cached forever (one flaky load would blank every future pane):
+// reset so a later mount retries.
 let wasmReady: Promise<void> | null = null;
-const ensureInit = () => (wasmReady ??= init());
+const ensureInit = () => (wasmReady ??= init().catch(e => { wasmReady = null; throw e; }));
 
 // The engine theme wants concrete color strings; resolve them from the same
 // theme.css tokens the rest of the UI uses.
@@ -18,6 +20,7 @@ const cssColor = (token: string) =>
 export function GhosttyTerm({ sid, focused, onFocus }: { sid: string; focused: boolean; onFocus: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
+  const [engineFailed, setEngineFailed] = useState(false);
   const { socket } = useContext(AppCtx);
 
   useEffect(() => {
@@ -26,8 +29,14 @@ export function GhosttyTerm({ sid, focused, onFocus }: { sid: string; focused: b
     let cleanup: (() => void) | null = null;
 
     (async () => {
-      await ensureInit();
+      try {
+        await ensureInit();
+      } catch {
+        if (!cancelled) setEngineFailed(true); // pane shows a message, not a silent blank
+        return;
+      }
       if (cancelled) return; // unmounted (or StrictMode first pass) while WASM loaded
+      setEngineFailed(false);
       const term = new Terminal({
         cols: 100, rows: 30, fontSize: 12,
         fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
@@ -77,6 +86,12 @@ export function GhosttyTerm({ sid, focused, onFocus }: { sid: string; focused: b
 
   return (
     <div data-term ref={ref} onMouseDown={onFocus}
-      style={{ flex: 1, minWidth: 0, opacity: focused ? 1 : .75, transition: "opacity .2s", background: "var(--bg)" }} />
+      style={{ flex: 1, minWidth: 0, opacity: focused ? 1 : .75, transition: "opacity .2s", background: "var(--bg)" }}>
+      {engineFailed && (
+        <div style={{ display: "grid", placeItems: "center", height: "100%", fontSize: 11, color: "var(--red)" }}>
+          terminal engine failed to load — reload to retry
+        </div>
+      )}
+    </div>
   );
 }

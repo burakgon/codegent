@@ -19,11 +19,24 @@ export const baseUrl = "";
 export const token = () => (typeof localStorage !== "undefined" ? localStorage.getItem("cgToken") ?? "" : "");
 
 const H = () => ({ "x-codegent-token": token(), "content-type": "application/json" });
+
+// A failed response must throw, never silently no-op: the daemon reports
+// errors as { error } json — surface that text, else "<status> <statusText>".
+const check = async (res: Response): Promise<Response> => {
+  if (res.ok) return res;
+  let msg = "";
+  try {
+    const b: any = await res.json();
+    if (typeof b?.error === "string") msg = b.error;
+  } catch { /* non-json error body */ }
+  throw new Error(msg || `${res.status} ${res.statusText}`);
+};
+
 export const api = {
-  get: async <T>(p: string): Promise<T> => (await fetch(baseUrl + p, { headers: H() })).json(),
-  post: async <T>(p: string, body: unknown): Promise<T> => (await fetch(baseUrl + p, { method: "POST", headers: H(), body: JSON.stringify(body) })).json(),
-  patch: async <T>(p: string, body: unknown): Promise<T> => (await fetch(baseUrl + p, { method: "PATCH", headers: H(), body: JSON.stringify(body) })).json(),
-  del: async (p: string): Promise<void> => { await fetch(baseUrl + p, { method: "DELETE", headers: H() }); },
+  get: async <T>(p: string): Promise<T> => (await check(await fetch(baseUrl + p, { headers: H() }))).json(),
+  post: async <T>(p: string, body: unknown): Promise<T> => (await check(await fetch(baseUrl + p, { method: "POST", headers: H(), body: JSON.stringify(body) }))).json(),
+  patch: async <T>(p: string, body: unknown): Promise<T> => (await check(await fetch(baseUrl + p, { method: "PATCH", headers: H(), body: JSON.stringify(body) }))).json(),
+  del: async (p: string): Promise<void> => { await check(await fetch(baseUrl + p, { method: "DELETE", headers: H() })); },
 };
 
 export type CgSocket = {

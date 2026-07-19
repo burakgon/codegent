@@ -14,15 +14,25 @@ const COLUMNS: { phase: CardPhase; label: string }[] = [
 export function Board() {
   const { projectId } = useContext(AppCtx);
   const qc = useQueryClient();
+  const [err, setErr] = useState<string | null>(null);
   const cards = useQuery({ queryKey: ["cards", projectId], queryFn: () => api.get<CardT[]>(`/api/projects/${projectId}/cards`) });
-  const invalidate = () => qc.invalidateQueries({ queryKey: ["cards", projectId] });
+  // any successful mutation clears the strip; failures show the api error text
+  const invalidate = () => { setErr(null); qc.invalidateQueries({ queryKey: ["cards", projectId] }); };
+  const fail = (e: unknown) => setErr(e instanceof Error ? e.message : String(e));
   const create = useMutation({
     mutationFn: (v: { title: string; agent: CardT["agent"] }) => api.post<CardT>(`/api/projects/${projectId}/cards`, { ...v, body: "" }),
     onSuccess: invalidate,
+    onError: fail,
   });
 
   return (
-    <div style={{ display: "flex", gap: 12, padding: 16, alignItems: "flex-start", overflow: "auto", flex: 1 }}>
+    <div style={{ position: "relative", display: "flex", gap: 12, padding: 16, alignItems: "flex-start", overflow: "auto", flex: 1 }}>
+      {err && (
+        <div onClick={() => setErr(null)}
+          style={{ position: "absolute", top: 10, left: 12, right: 12, zIndex: 20, fontSize: 11, color: "var(--red)", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, padding: "6px 10px", cursor: "pointer" }}>
+          {err}
+        </div>
+      )}
       {COLUMNS.map(col => {
         const list = (cards.data ?? []).filter(c => c.phase === col.phase);
         return (
@@ -31,7 +41,7 @@ export function Board() {
               {col.label}
               <span style={{ background: "var(--surface-2)", borderRadius: 999, padding: "0 7px", fontSize: 9.5, color: "var(--meta)" }}>{list.length}</span>
             </div>
-            {list.map(c => <CardView key={c.id} card={c} onChanged={invalidate} />)}
+            {list.map(c => <CardView key={c.id} card={c} onChanged={invalidate} onError={fail} />)}
             {col.phase === "queued" && <Composer onCreate={(title, agent) => create.mutate({ title, agent })} />}
           </div>
         );
