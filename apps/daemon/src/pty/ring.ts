@@ -8,6 +8,7 @@ export class Ring {
   private buf: Uint8Array;
   private len = 0; // valid bytes
   private head = 0; // write index (== oldest byte index once full)
+  private flushChain: Promise<unknown> = Promise.resolve();
 
   constructor(private cap: number) {
     this.buf = new Uint8Array(cap);
@@ -38,8 +39,13 @@ export class Ring {
     return out;
   }
 
-  async flushTo(path: string): Promise<void> {
-    await Bun.write(path, this.snapshot());
+  flushTo(path: string): Promise<void> {
+    // Serialized on a promise chain: the 3s interval flush and the final
+    // on-exit flush must never interleave writes to the same file (Plan-1
+    // race). Snapshot is taken when the chained step runs — latest data wins.
+    const p = this.flushChain.then(() => Bun.write(path, this.snapshot())).then(() => {});
+    this.flushChain = p.catch(() => {}); // one failed flush must not poison the chain
+    return p;
   }
 
   static async load(path: string, cap: number): Promise<Ring> {

@@ -58,6 +58,9 @@ async function handleApi(req: Request, url: URL, db: Database, ptys: PtyManager)
 
   if ((x = m(/^\/api\/projects\/([^/]+)\/cards$/)) && req.method === "GET") return json(listCards(db, x[1]!));
   if ((x = m(/^\/api\/projects\/([^/]+)\/cards$/)) && req.method === "POST") {
+    // Existence pre-check before body validation, matching the worktrees route:
+    // a ghost project is a 404, never a FK-violation 500.
+    if (!listProjects(db).some(p => p.id === x![1])) return json({ error: "project not found" }, 404);
     const v = CardCreateBody.safeParse(body);
     if (!v.success) return invalid(v.error);
     const card = createCard(db, { projectId: x[1]!, title: v.data.title, body: v.data.body ?? "", agent: v.data.agent ?? "none" });
@@ -84,12 +87,13 @@ async function handleApi(req: Request, url: URL, db: Database, ptys: PtyManager)
 
   if ((x = m(/^\/api\/projects\/([^/]+)\/sessions$/)) && req.method === "GET") return json(ptys.list(x[1]!));
   if ((x = m(/^\/api\/projects\/([^/]+)\/sessions$/)) && req.method === "POST") {
+    const project = listProjects(db).find(p => p.id === x![1]);
+    if (!project) return json({ error: "project not found" }, 404); // was: silent HOME fallback
     const v = SessionCreateBody.safeParse(body);
     if (!v.success) return invalid(v.error);
-    const project = listProjects(db).find(p => p.id === x![1]);
     const meta = ptys.open({
       projectId: x[1]!,
-      cwd: v.data.cwd ?? project?.path ?? process.env.HOME ?? "/",
+      cwd: v.data.cwd ?? project.path,
       title: v.data.title ?? "shell",
       worktreeId: v.data.worktreeId ?? null,
     });

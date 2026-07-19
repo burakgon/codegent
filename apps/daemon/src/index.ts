@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { loadConfig } from "./config";
 import { openDb } from "./store/db";
-import { PtyManager } from "./pty/manager";
+import { PtyManager, sweepDeadRings } from "./pty/manager";
 import { startServer } from "./http/server";
 
 const cfg = loadConfig();
@@ -11,6 +11,10 @@ const db = openDb(join(cfg.dataDir, "db.sqlite"));
 // process behind them. PtyManager only flips rows at runtime, so heal
 // ghosts here before serving.
 db.query(`UPDATE sessions SET live = 0`).run();
+// Ring GC rides the same sweep: dead sessions' scrollback dies with them,
+// except the latest agent session per card's current attempt — that ring
+// replays as the frozen "previous session" pane (spec §4.3).
+sweepDeadRings(db, cfg.dataDir);
 
 const ptys = new PtyManager(db, cfg.dataDir);
 const srv = startServer(cfg, db, ptys);

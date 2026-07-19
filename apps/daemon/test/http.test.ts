@@ -82,6 +82,31 @@ test('PATCH with v0.1 phase "waiting" → 400, card unchanged', async () => {
   expect(cards.find((k: any) => k.id === c.id).phase).toBe("queued");
 }, 15000);
 
+test("POST under a ghost project → 404 project not found, all three routes", async () => {
+  // Valid bodies on purpose: the failure must be the missing project (404),
+  // never body validation (400) — and the cards FK 500 must be gone.
+  const routes: Array<[string, unknown]> = [
+    ["cards", { title: "x" }],
+    ["sessions", { title: "x" }],
+    ["worktrees", { name: "x" }],
+  ];
+  for (const [route, body] of routes) {
+    const r = await fetch(`${base}/projects/ghost/${route}`, { ...T, method: "POST", body: JSON.stringify(body) });
+    expect(r.status).toBe(404);
+    expect((await r.json()).error).toBe("project not found");
+  }
+}, 15000);
+
+test("POST sessions on a real project still opens a shell (cwd falls back to project path)", async () => {
+  const p = await (await fetch(`${base}/projects`, { ...T, method: "POST", body: JSON.stringify({ name: "S", path: "/tmp", baseBranch: "main", skipGitCheck: true }) })).json();
+  const r = await fetch(`${base}/projects/${p.id}/sessions`, { ...T, method: "POST", body: JSON.stringify({}) });
+  expect(r.status).toBe(201);
+  const meta = await r.json();
+  expect(meta.kind).toBe("shell");
+  expect(meta.cwd).toBe("/tmp");
+  await fetch(`${base}/sessions/${meta.id}`, { ...T, method: "DELETE" });
+}, 15000);
+
 test("terminal over ws: snapshot then live", async () => {
   const meta = ptys.open({ projectId: "p", cwd: "/tmp", title: "t" });
   const ws = new WebSocket(`${srv.url.replace("http", "ws")}ws?t=testtoken`);
