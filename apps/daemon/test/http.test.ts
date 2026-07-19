@@ -2,13 +2,17 @@ import { test, expect, afterAll } from "bun:test";
 import { openDb } from "../src/store/db";
 import { PtyManager } from "../src/pty/manager";
 import { startServer } from "../src/http/server";
+import { Engine } from "../src/orchestrator/engine";
+import { events as bus } from "../src/events";
 import { decodeEnvelope, encodeEnvelope } from "@codegent/protocol";
 
 const db = openDb(":memory:");
 const dataDir = `/tmp/cg-http-${crypto.randomUUID()}`;
 const ptys = new PtyManager(db, dataDir);
+// No adapters registered: R1 has nothing startable, action routes still mount.
+const engine = new Engine({ db, ptys, adapters: { claude: null, codex: null }, events: bus, clock: Date.now });
 const cfg = { port: 4790 + Math.floor(Math.random() * 100), dataDir, token: "testtoken" };
-const srv = startServer(cfg, db, ptys);
+const srv = startServer(cfg, db, ptys, engine);
 const base = `${srv.url}api`;
 const T = { headers: { "x-codegent-token": "testtoken", "content-type": "application/json" } };
 
@@ -121,6 +125,44 @@ test("POST sessions on a real project still opens a shell (cwd falls back to pro
   expect(meta.kind).toBe("shell");
   expect(meta.cwd).toBe("/tmp");
   await fetch(`${base}/sessions/${meta.id}`, { ...T, method: "DELETE" });
+}, 15000);
+
+test("board reorder + worker limit routes (T8)", async () => {
+  const p = await (await fetch(`${base}/projects`, { ...T, method: "POST", body: JSON.stringify({ name: "RL", path: "/tmp", baseBranch: "main", skipGitCheck: true }) })).json();
+  expect(p.workerLimit).toBe(1); // default
+  const c = await (await fetch(`${base}/projects/${p.id}/cards`, { ...T, method: "POST", body: JSON.stringify({ title: "one" }) })).json();
+
+  const moved = await fetch(`${base}/projects/${p.id}/cards/${c.id}/position`, { ...T, method: "PATCH", body: JSON.stringify({ position: 0.5 }) });
+  expect(moved.status).toBe(200);
+  expect((await moved.json()).position).toBe(0.5);
+  const ghost = await fetch(`${base}/projects/${p.id}/cards/999999/position`, { ...T, method: "PATCH", body: JSON.stringify({ position: 1 }) });
+  expect(ghost.status).toBe(404);
+  const badPos = await fetch(`${base}/projects/${p.id}/cards/${c.id}/position`, { ...T, method: "PATCH", body: JSON.stringify({ position: "top" }) });
+  expect(badPos.status).toBe(400);
+
+  const badLimit = await fetch(`${base}/projects/${p.id}`, { ...T, method: "PATCH", body: JSON.stringify({ workerLimit: 0 }) });
+  expect(badLimit.status).toBe(400);
+  const ok = await fetch(`${base}/projects/${p.id}`, { ...T, method: "PATCH", body: JSON.stringify({ workerLimit: 3 }) });
+  expect(ok.status).toBe(200);
+  expect((await ok.json()).workerLimit).toBe(3);
+  const ghostProject = await fetch(`${base}/projects/ghost`, { ...T, method: "PATCH", body: JSON.stringify({ workerLimit: 2 }) });
+  expect(ghostProject.status).toBe(404);
+}, 15000);
+
+test("action routes map engine rejections: none-agent start 409, ghost card 404, illegal stop 409", async () => {
+  const p = await (await fetch(`${base}/projects`, { ...T, method: "POST", body: JSON.stringify({ name: "AC", path: "/tmp", baseBranch: "main", skipGitCheck: true }) })).json();
+  const c = await (await fetch(`${base}/projects/${p.id}/cards`, { ...T, method: "POST", body: JSON.stringify({ title: "n" }) })).json(); // agent defaults to none
+
+  const start = await fetch(`${base}/cards/${c.id}/start`, { ...T, method: "POST" });
+  expect(start.status).toBe(409); // a `none` card opens nothing agent-side
+  const ghost = await fetch(`${base}/cards/999999/start`, { ...T, method: "POST" });
+  expect(ghost.status).toBe(404);
+  const stop = await fetch(`${base}/cards/${c.id}/stop`, { ...T, method: "POST" });
+  expect(stop.status).toBe(409); // queued card cannot stop (IllegalTransition)
+  const sendBack = await fetch(`${base}/cards/${c.id}/send-back`, { ...T, method: "POST", body: JSON.stringify({ comments: ["x"] }) });
+  expect(sendBack.status).toBe(409); // not in review.ready
+  const badComments = await fetch(`${base}/cards/${c.id}/send-back`, { ...T, method: "POST", body: JSON.stringify({ comments: [1] }) });
+  expect(badComments.status).toBe(400);
 }, 15000);
 
 test("terminal over ws: snapshot then live", async () => {

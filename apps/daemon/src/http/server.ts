@@ -2,10 +2,12 @@ import type { Database } from "bun:sqlite";
 import { join, resolve, sep } from "node:path";
 import { existsSync, statSync } from "node:fs";
 import { CardSchema, ProjectSchema, SessionMetaSchema, WorktreeSchema } from "@codegent/protocol";
-import { createProject, listProjects } from "../store/projects";
-import { createCard, updateCard, deleteCard, listCards } from "../store/cards";
+import { createProject, listProjects, setWorkerLimit } from "../store/projects";
+import { createCard, updateCard, deleteCard, getCard, listCards } from "../store/cards";
 import { createWorktree, listWorktrees, slug } from "../git/worktrees";
 import type { PtyManager } from "../pty/manager";
+import { CardNotFound, NotStartable, type Engine } from "../orchestrator/engine";
+import { IllegalTransition } from "../orchestrator/machine";
 import { events } from "../events";
 import { wsHandlers, type WsData } from "./ws";
 
@@ -36,7 +38,17 @@ async function resolveBaseBranch(path: string): Promise<string> {
   return (await run("branch", "--show-current")) || "main";
 }
 
-async function handleApi(req: Request, url: URL, db: Database, ptys: PtyManager): Promise<Response> {
+// Engine rejections → HTTP: unknown card 404; machine-illegal or unstartable
+// (none-agent / adapterless) actions 409. Anything else rethrows into the 500
+// handler. Error text is engine/git-authored — never terminal content.
+const engineError = (e: unknown): Response => {
+  if (e instanceof CardNotFound) return json({ error: e.message }, 404);
+  if (e instanceof NotStartable) return json({ error: e.message }, 409);
+  if (e instanceof IllegalTransition) return json({ error: `illegal transition: ${e.message}` }, 409);
+  throw e;
+};
+
+async function handleApi(req: Request, url: URL, db: Database, ptys: PtyManager, engine: Engine): Promise<Response> {
   const body: any = req.method === "POST" || req.method === "PATCH" ? await req.json().catch(() => ({})) : {};
   const m = (re: RegExp) => url.pathname.match(re);
   let x: RegExpMatchArray | null;
@@ -65,6 +77,7 @@ async function handleApi(req: Request, url: URL, db: Database, ptys: PtyManager)
     if (!v.success) return invalid(v.error);
     const card = createCard(db, { projectId: x[1]!, title: v.data.title, body: v.data.body ?? "", agent: v.data.agent ?? "none" });
     events.emit({ t: "card", card });
+    engine.tick(); // R1: a new queued auto:on card may start immediately
     return json(card, 201);
   }
   if ((x = m(/^\/api\/cards\/(\d+)$/)) && req.method === "PATCH") {
@@ -77,7 +90,52 @@ async function handleApi(req: Request, url: URL, db: Database, ptys: PtyManager)
       return json({ error: "card not found" }, 404);
     }
     events.emit({ t: "card", card });
+    engine.tick();
     return json(card);
+  }
+
+  // ---- v0.2 orchestrator action routes (T8) ----
+  if ((x = m(/^\/api\/cards\/(\d+)\/(start|stop|merge|send-back)$/)) && req.method === "POST") {
+    const id = Number(x[1]);
+    const action = x[2]!;
+    try {
+      if (action === "start") await engine.start(id);
+      else if (action === "stop") engine.stop(id);
+      else if (action === "merge") await engine.merge(id);
+      else {
+        const comments = body.comments ?? [];
+        if (!Array.isArray(comments) || comments.some((c: unknown) => typeof c !== "string")) {
+          return json({ error: "comments must be an array of strings" }, 400);
+        }
+        await engine.sendBack(id, comments);
+      }
+    } catch (e) {
+      return engineError(e);
+    }
+    return json(getCard(db, id));
+  }
+  // Board reorder — queue ordering feeds R1's "topmost".
+  if ((x = m(/^\/api\/projects\/([^/]+)\/cards\/(\d+)\/position$/)) && req.method === "PATCH") {
+    const card = getCard(db, Number(x[2]));
+    if (!card || card.projectId !== x[1]) return json({ error: "card not found" }, 404);
+    if (typeof body.position !== "number" || !Number.isFinite(body.position)) {
+      return json({ error: "position must be a number" }, 400);
+    }
+    const moved = updateCard(db, card.id, { position: body.position });
+    events.emit({ t: "card", card: moved });
+    engine.tick();
+    return json(moved);
+  }
+  // Worker limit (spec §5 — Settings-owned, default 1).
+  if ((x = m(/^\/api\/projects\/([^/]+)$/)) && req.method === "PATCH") {
+    if (!listProjects(db).some(p => p.id === x![1])) return json({ error: "project not found" }, 404);
+    if (!Number.isInteger(body.workerLimit) || body.workerLimit < 1) {
+      return json({ error: "workerLimit must be an integer >= 1" }, 400);
+    }
+    const project = setWorkerLimit(db, x[1]!, body.workerLimit)!;
+    events.emit({ t: "project", project });
+    engine.tick(); // a raised limit can free slots right now
+    return json(project);
   }
   if ((x = m(/^\/api\/cards\/(\d+)$/)) && req.method === "DELETE") {
     deleteCard(db, Number(x[1]));
@@ -124,6 +182,7 @@ export function startServer(
   cfg: { port: number; dataDir: string; token: string },
   db: Database,
   ptys: PtyManager,
+  engine: Engine,
 ) {
   // apps/daemon/src/http → up 3 → apps, then web/dist
   const staticRoot = join(import.meta.dir, "../../../web/dist");
@@ -146,7 +205,7 @@ export function startServer(
       if (url.pathname.startsWith("/api/")) {
         if (!authed) return json({ error: "unauthorized" }, 401);
         try {
-          return await handleApi(req, url, db, ptys);
+          return await handleApi(req, url, db, ptys, engine);
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 500);
         }

@@ -2,6 +2,15 @@ import type { Database } from "bun:sqlite";
 import { appendTimeline } from "../store/timeline";
 import { markPendingComplete, touchDispatchProgress } from "../store/attempts";
 
+/** The engine surface the agent plane calls (structural — Engine satisfies
+ * it; consumer-side so this module never imports the orchestrator). */
+export interface AgentEngine {
+  /** Session-key → current live dispatch id (T8 send-back aliasing). */
+  resolveAgentDispatch(id: string): string;
+  /** R3: dispatch latch → machine `complete` → R1 tick. */
+  completeFromApi(dispatchId: string): void;
+}
+
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
 
@@ -10,13 +19,16 @@ function getCard(db: Database, id: number): { id: number; title: string; body: s
   return db.query(`SELECT id, title, body FROM cards WHERE id = ?1`).get(id) as any;
 }
 
-function getDispatch(db: Database, id: string): { id: string; status: string; worktreePath: string | null } | null {
+/** Dispatch lookup SCOPED TO THE CARD (`a.card_id = ?2`): a crossed envelope
+ * (dispatch id paired with someone else's card id) 404s instead of gating,
+ * heartbeating, or completing the wrong rows. */
+function getDispatch(db: Database, id: string, cardId: number): { id: string; status: string; worktreePath: string | null } | null {
   const r = db.query(
     `SELECT d.id AS id, d.status AS status, w.path AS wt_path
      FROM dispatches d JOIN attempts a ON a.id = d.attempt_id
      LEFT JOIN worktrees w ON w.id = a.worktree_id
-     WHERE d.id = ?1`,
-  ).get(id) as any;
+     WHERE d.id = ?1 AND a.card_id = ?2`,
+  ).get(id, cardId) as any;
   return r ? { id: r.id, status: r.status, worktreePath: r.wt_path ?? null } : null;
 }
 
@@ -39,11 +51,18 @@ async function porcelain(cwd: string): Promise<string | null> {
  * token, and the daemon's UI token never crosses into agent processes. Unlike
  * the hook plane this surface returns real errors: they land in the agent's
  * own conversation as MCP tool errors, which is §6.1's single sanctioned echo
- * channel. Nothing here emits domain events or touches card phase — that is
- * the engine's job (T8).
+ * channel. Card-phase transitions happen ONLY through the engine hooks below;
+ * nothing here emits domain events directly.
+ *
+ * Sidecar envelope ids are SPAWN-TIME ids; after a live-session send-back the
+ * engine's alias map points them at the current dispatch, so every id is
+ * resolved through `engine.resolveAgentDispatch` before any row is touched.
  */
-export async function handleAgentApi(req: Request, url: URL, body: unknown, db: Database): Promise<Response> {
+export async function handleAgentApi(
+  req: Request, url: URL, body: unknown, db: Database, engine?: AgentEngine,
+): Promise<Response> {
   const b = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
+  const resolve = (id: string): string => engine?.resolveAgentDispatch(id) ?? id;
 
   if (url.pathname === "/api/agent/task" && req.method === "GET") {
     const card = getCard(db, Number(url.searchParams.get("card")));
@@ -59,17 +78,21 @@ export async function handleAgentApi(req: Request, url: URL, body: unknown, db: 
     const card = getCard(db, Number(b.card));
     if (!card) return json({ error: "card not found" }, 404);
     if (typeof b.dispatch !== "string" || !b.dispatch) return json({ error: "dispatch required" }, 400);
+    const dispatch = getDispatch(db, resolve(b.dispatch), card.id);
+    if (!dispatch) return json({ error: "dispatch not found" }, 404); // unknown OR crossed envelope
     if (typeof b.note !== "string" || !b.note.trim()) return json({ error: "note required" }, 400);
     appendTimeline(db, card.id, "progress", b.note);
-    touchDispatchProgress(db, b.dispatch, Date.now()); // the heartbeat the engine reads
+    touchDispatchProgress(db, dispatch.id, Date.now()); // the heartbeat the engine reads
     return json({ ok: true });
   }
 
   if (url.pathname === "/api/agent/complete" && req.method === "POST") {
     const card = getCard(db, Number(b.card));
     if (!card) return json({ error: "card not found" }, 404);
-    const dispatch = typeof b.dispatch === "string" && b.dispatch ? getDispatch(db, b.dispatch) : null;
-    if (!dispatch) return json({ error: "dispatch not found" }, 404);
+    const dispatch = typeof b.dispatch === "string" && b.dispatch
+      ? getDispatch(db, resolve(b.dispatch), card.id)
+      : null;
+    if (!dispatch) return json({ error: "dispatch not found" }, 404); // unknown OR crossed envelope
     if (typeof b.summary !== "string") return json({ error: "summary required" }, 400);
     // Dirty-worktree gate (VK stop-gate, spec §6.1): the porcelain echoed here
     // reaches ONLY the agent's conversation via the sidecar's tool error — it
@@ -78,11 +101,19 @@ export async function handleAgentApi(req: Request, url: URL, body: unknown, db: 
       const status = await porcelain(dispatch.worktreePath);
       if (status) return json({ error: `worktree has uncommitted changes:\n${status}` }, 409);
     }
-    // Latch-guarded pending-complete marker (pre-T8): only a running dispatch
-    // records it. A stale retry is acknowledged and dropped — never an error,
-    // the agent already did its part ("report completion exactly once").
+    // ORDERING (deliberate): [1] pending_complete marker — crash-safety: if
+    // the daemon dies before the engine acts, the accepted completion survives
+    // store-side for the next complete-eval / reconciliation to honor;
+    // [2] summary → timeline `round` row (the sanctioned agent-authored text
+    // location: Details drawer only); [3] engine completion. All three sit in
+    // the same latch-guarded branch — a stale retry (marker returns false)
+    // writes nothing, appends nothing, and never re-enters the engine.
     const recorded = markPendingComplete(db, dispatch.id);
-    return json(recorded ? { ok: true, pending: true } : { ok: true, stale: true });
+    if (recorded) {
+      appendTimeline(db, card.id, "round", b.summary);
+      engine?.completeFromApi(dispatch.id);
+    }
+    return json(recorded ? { ok: true } : { ok: true, stale: true });
   }
 
   return json({ error: "not found" }, 404);

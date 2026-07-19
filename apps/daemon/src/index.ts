@@ -4,6 +4,9 @@ import { openDb } from "./store/db";
 import { PtyManager, sweepDeadRings } from "./pty/manager";
 import { startServer } from "./http/server";
 import { startHookReceiver, writeHookScript } from "./agents/receiver";
+import { ClaudeAdapter } from "./agents/claude";
+import { Engine } from "./orchestrator/engine";
+import { events } from "./events";
 
 const cfg = loadConfig();
 const db = openDb(join(cfg.dataDir, "db.sqlite"));
@@ -19,12 +22,33 @@ sweepDeadRings(db, cfg.dataDir);
 
 const ptys = new PtyManager(db, cfg.dataDir);
 // Signal plane: loopback hook receiver + agent API on a random port with its
-// own token (endpoint file + hook script under <dataDir>/agents). Adapters
-// (T7) subscribe via receiver.onHook and spawn sidecars against it.
-const receiver = startHookReceiver({ dataDir: cfg.dataDir, db });
+// own token (endpoint file + hook script under <dataDir>/agents). The engine
+// accessor is late-bound: the receiver must exist first (its port/token feed
+// the adapters the engine is constructed with).
+let engineRef: Engine | undefined;
+const receiver = startHookReceiver({ dataDir: cfg.dataDir, db, engine: () => engineRef });
 writeHookScript(cfg.dataDir);
-const srv = startServer(cfg, db, ptys);
+
+// Orchestrator (T8): adapter registry (codex lands in T10), singleton event
+// bus, wall clock, spec-default timers (10min heartbeat / 30min runaway / 30s
+// spawn budget). Hook deliveries flow receiver → adapter normalizer → engine.
+const claude = new ClaudeAdapter({
+  dataDir: cfg.dataDir, hookPort: receiver.port, hookToken: receiver.token, ptys,
+});
+const engine = new Engine({
+  db, ptys, adapters: { claude, codex: null }, events, clock: Date.now,
+});
+engineRef = engine;
+engine.attachHooks(receiver);
+
+const srv = startServer(cfg, db, ptys, engine);
 console.log(`codegent daemon → ${srv.url}?t=${cfg.token}`);
+
+// R1 at boot (queued auto:on cards start when slots are free; T9's boot
+// reconciliation will precede this once crash recovery lands), then the 30s
+// supervision pulse (heartbeat soft-warn, runaway guard).
+engine.tick();
+const pulse = setInterval(() => engine.interval(), 30_000);
 
 // Shutdown ordering: stop accepting traffic, SIGHUP every live PTY, wait
 // for all of them to exit, then close the db. Each session's exit handler
@@ -38,6 +62,7 @@ async function shutdown(): Promise<void> {
   // the daemon unkillable — force quit.
   if (shuttingDown) process.exit(1);
   shuttingDown = true;
+  clearInterval(pulse);
   srv.stop();
   receiver.stop(); // same phase: stop accepting traffic (hook scripts fail open)
   const live = ptys.liveSessions();

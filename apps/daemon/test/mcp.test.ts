@@ -232,6 +232,31 @@ test("stale dispatch (terminal status) never records the marker — write-once l
   expect(pendingComplete(db, stale)).toBe(false);
 });
 
+test("crossed card-dispatch envelope ids 404 instead of acting on the wrong rows", async () => {
+  // dispatchClean belongs to cardClean — pairing it with cardDirty must 404.
+  const progressRowsBefore = listTimeline(db, cardClean.id).length;
+  const crossedComplete = await fetch(`${api}/complete`, {
+    ...H, method: "POST",
+    body: JSON.stringify({ card: cardDirty.id, dispatch: dispatchClean, summary: "crossed" }),
+  });
+  expect(crossedComplete.status).toBe(404);
+  const crossedProgress = await fetch(`${api}/progress`, {
+    ...H, method: "POST",
+    body: JSON.stringify({ card: cardClean.id, dispatch: dispatchDirty, note: "crossed" }),
+  });
+  expect(crossedProgress.status).toBe(404);
+  // Nothing landed: no timeline rows, no heartbeat on the foreign dispatch.
+  expect(listTimeline(db, cardClean.id).length).toBe(progressRowsBefore);
+  const d = db.query(`SELECT last_progress_at FROM dispatches WHERE id = ?1`).get(dispatchDirty) as any;
+  expect(d.last_progress_at).toBeNull();
+});
+
+test("accepted completion persisted the summary as a round timeline row (Details drawer only)", () => {
+  const round = listTimeline(db, cardClean.id).filter(r => r.kind === "round");
+  expect(round.length).toBe(1);
+  expect(round[0]!.text).toBe("parser fixed, tests green");
+});
+
 test("agent routes: ghost card 404s before body validation; missing fields 400", async () => {
   const ghost = await fetch(`${api}/task?card=99999`, H);
   expect(ghost.status).toBe(404);

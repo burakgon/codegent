@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { chmodSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { handleAgentApi } from "./mcp";
+import { handleAgentApi, type AgentEngine } from "./mcp";
 
 /** One normalized hook arrival. `event` is the agent CLI's raw hook JSON —
  * adapters (T7) normalize it into content-free signals; the receiver never
@@ -93,7 +93,15 @@ exit 0
  * random port with its own minted token — the UI-plane token from config.ts
  * never reaches agent processes, and this token never authorizes UI routes.
  */
-export function startHookReceiver(deps: { dataDir: string; db: Database }): HookReceiver {
+export function startHookReceiver(deps: {
+  dataDir: string;
+  db: Database;
+  /** Late-bound engine accessor (T8): the receiver boots before the engine —
+   * which needs this receiver's port/token for its adapters — so the agent
+   * routes fetch it per request. Absent (tests, boot window) → the complete
+   * route degrades to the pre-engine marker-only behavior. */
+  engine?: () => AgentEngine | undefined;
+}): HookReceiver {
   const token = crypto.randomUUID().replace(/-/g, "");
   const subs = new Set<(h: HookDelivery) => void>();
 
@@ -116,7 +124,7 @@ export function startHookReceiver(deps: { dataDir: string; db: Database }): Hook
         }
       }
       try {
-        return await handleAgentApi(req, url, body, deps.db);
+        return await handleAgentApi(req, url, body, deps.db, deps.engine?.());
       } catch (e) {
         return json({ error: e instanceof Error ? e.message : String(e) }, 500);
       }
