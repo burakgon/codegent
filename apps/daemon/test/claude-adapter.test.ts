@@ -5,7 +5,8 @@ import { join } from "node:path";
 import type { Attempt, Card, Dispatch, Project, SessionMeta } from "@codegent/protocol";
 import type { OpenSessionOpts } from "../src/pty/manager";
 import { ClaudeAdapter, buildTaskPrompt, normalizeClaudeHook } from "../src/agents/claude";
-import type { AdapterPtySession, AdapterSignal, SpawnCtx } from "../src/agents/types";
+import { injectTaskPrompt } from "../src/agents/common";
+import type { AdapterPtySession, AdapterPtys, AdapterSignal, SpawnCtx } from "../src/agents/types";
 
 const dataDir = mkdtempSync(join(tmpdir(), "cg-claude-"));
 afterAll(() => rmSync(dataDir, { recursive: true, force: true }));
@@ -156,7 +157,7 @@ const dispatch: Dispatch = { id: "d-123", attemptId: 3, status: "running", lastP
 const HOOK_PORT = 45678;
 const HOOK_TOKEN = "tok-abc";
 // Tight timings so tests stay fast; production defaults are separate constants.
-const TIMING = { capMs: 300, quietMs: 20, enterDelayMs: 10 };
+const TIMING = { capMs: 300, minReadyMs: 0, quietMs: 20, enterDelayMs: 10 };
 
 function makeAdapter(ptys: FakePtys) {
   return new ClaudeAdapter({ dataDir, hookPort: HOOK_PORT, hookToken: HOOK_TOKEN, ptys, timing: TIMING });
@@ -307,6 +308,34 @@ test("spawn injects the prompt \\x15-first, then a separate \\r submit (Orca pas
   const all = ptys.writes.join("");
   expect(all.startsWith("\x15")).toBe(true);
   expect(all.endsWith("\r")).toBe(true);
+});
+
+test("prompt injection ignores an early first-paint gap before the composer is ready", async () => {
+  const writes: string[] = [];
+  let ready = false;
+  const sess: AdapterPtySession = {
+    write(data) {
+      if (ready) writes.push(typeof data === "string" ? data : new TextDecoder().decode(data));
+    },
+    onData(cb) {
+      const early = setTimeout(() => cb(new TextEncoder().encode("early paint")), 2);
+      const composer = setTimeout(() => {
+        ready = true;
+        cb(new TextEncoder().encode("composer"));
+      }, 40);
+      return () => { clearTimeout(early); clearTimeout(composer); };
+    },
+  };
+  const ptys: AdapterPtys = {
+    open: () => { throw new Error("not used"); },
+    get: () => sess,
+  };
+
+  await injectTaskPrompt(ptys, "pty", "Task: wait for the composer", {
+    capMs: 120, minReadyMs: 55, quietMs: 10, enterDelayMs: 1,
+  });
+
+  expect(writes).toEqual(["\x15Task: wait for the composer", "\r"]);
 });
 
 test("spawn survives a session that died before injection (no writes, still resolves)", async () => {

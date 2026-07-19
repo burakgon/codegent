@@ -14,10 +14,17 @@ import type { AdapterPtySession, AdapterPtys } from "./types";
  * swallow an embedded `\r`, so the submit must travel alone (orca-agent-state §6). */
 export interface InjectTiming {
   capMs: number;
+  /** Ignore short gaps in the CLI's first paint before its composer is ready. */
+  minReadyMs: number;
   quietMs: number;
   enterDelayMs: number;
 }
-export const DEFAULT_INJECT_TIMING: InjectTiming = { capMs: 3000, quietMs: 250, enterDelayMs: 500 };
+export const DEFAULT_INJECT_TIMING: InjectTiming = {
+  capMs: 3000,
+  minReadyMs: 1200,
+  quietMs: 250,
+  enterDelayMs: 500,
+};
 
 /** POSIX single-quote, safe for paths/ids embedded in a hook command string. */
 export const shq = (s: string): string => `'${s.replaceAll("'", `'\\''`)}'`;
@@ -84,7 +91,7 @@ export async function awaitPasteReady(sess: AdapterPtySession, t: InjectTiming):
     const poll = Math.max(5, Math.min(25, t.quietMs));
     for (;;) {
       const now = Date.now();
-      if (last > 0 && now - last >= t.quietMs) return;
+      if (last > 0 && now - start >= t.minReadyMs && now - last >= t.quietMs) return;
       if (now - start >= t.capMs) return;
       await Bun.sleep(poll);
     }

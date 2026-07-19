@@ -176,7 +176,7 @@ async function makeRealWorld(): Promise<Omit<World, "adapter"> & { dataDir: stri
   const dataDir = mkTmp();
   const adapter = new ClaudeAdapter({
     dataDir, hookPort: 45999, hookToken: "tok", ptys,
-    timing: { capMs: 80, quietMs: 10, enterDelayMs: 2 },
+    timing: { capMs: 80, minReadyMs: 0, quietMs: 10, enterDelayMs: 2 },
   });
   const events: DomainEvent[] = [];
   return { db, repo, project, ptys, events, dataDir, engine: buildEngine(db, ptys, adapter, events) };

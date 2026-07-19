@@ -454,6 +454,14 @@ export class Engine {
     this.ptyByCard.set(cardId, res.sessionMeta.id);
     this.ptyByDispatch.set(dispatchId, res.sessionMeta.id);
     this.spawnKeyByCard.set(cardId, dispatchId);
+    // SessionStart may beat adapter.spawn()'s paste-readiness work and arrive
+    // before the PTY id is registered. handleSignal retains the adapter id in
+    // memory; backfill it now so daemon-restart resume keeps the native
+    // conversation instead of falling through to a fresh-context launch.
+    const earlyAdapterSessionId = this.asidByCard.get(cardId);
+    if (earlyAdapterSessionId) {
+      setAdapterSessionId(this.deps.db, res.sessionMeta.id, earlyAdapterSessionId);
+    }
     const sess = this.deps.ptys.get(res.sessionMeta.id);
     if (!sess) return;
     // Post-exit reaping (§6.1): the PTY child is pgroup leader (pgid == pid);

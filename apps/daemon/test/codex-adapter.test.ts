@@ -75,7 +75,7 @@ const dispatch: Dispatch = { id: "d-123", attemptId: 3, status: "running", lastP
 
 const HOOK_PORT = 45678;
 const HOOK_TOKEN = "tok-abc";
-const TIMING = { capMs: 300, quietMs: 20, enterDelayMs: 10 };
+const TIMING = { capMs: 300, minReadyMs: 0, quietMs: 20, enterDelayMs: 10 };
 
 /** A fixture USER ~/.codex — realistic config.toml + auth.json, mtimes pinned
  * into the past so any accidental write is unmissable. */

@@ -218,6 +218,27 @@ test("R1 starts the topmost auto:on startable card only while slots are free", a
   expect(w.adapter.spawns[1]!.card.id).toBe(c2.id);
 });
 
+test("an early SessionStart is persisted after adapter spawn registration completes", async () => {
+  const w = await makeWorld();
+  const c = card(w, "early session");
+  const spawn = w.adapter.spawn.bind(w.adapter);
+  w.adapter.spawn = async (ctx) => {
+    const result = await spawn(ctx);
+    w.engine.handleSignal(ctx.dispatch.id, {
+      s: "session-started",
+      adapterSessionId: "early-adapter-session",
+    });
+    return result;
+  };
+
+  await w.engine.start(c.id);
+
+  const row = w.db.query(
+    `SELECT adapter_session_id AS id FROM sessions WHERE attempt_id = ?1`,
+  ).get(getCard(w.db, c.id)!.attemptId) as { id: string | null };
+  expect(row.id).toBe("early-adapter-session");
+});
+
 test("R1 registry: a queued codex card auto-starts through the CODEX adapter; without one it stays queued", async () => {
   // Default world: codex has NO registered adapter → R1 must not pick it up.
   const w0 = await makeWorld();
