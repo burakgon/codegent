@@ -4,6 +4,7 @@ import { PtyManager } from "../src/pty/manager";
 import { startServer } from "../src/http/server";
 import { Engine } from "../src/orchestrator/engine";
 import { events as bus } from "../src/events";
+import { appendTimeline } from "../src/store/timeline";
 import { decodeEnvelope, encodeEnvelope } from "@codegent/protocol";
 
 const db = openDb(":memory:");
@@ -135,6 +136,9 @@ test("board reorder + worker limit routes (T8)", async () => {
   const moved = await fetch(`${base}/projects/${p.id}/cards/${c.id}/position`, { ...T, method: "PATCH", body: JSON.stringify({ position: 0.5 }) });
   expect(moved.status).toBe(200);
   expect((await moved.json()).position).toBe(0.5);
+  const toggled = await fetch(`${base}/cards/${c.id}`, { ...T, method: "PATCH", body: JSON.stringify({ auto: false }) });
+  expect(toggled.status).toBe(200);
+  expect((await toggled.json()).auto).toBe(false);
   const ghost = await fetch(`${base}/projects/${p.id}/cards/999999/position`, { ...T, method: "PATCH", body: JSON.stringify({ position: 1 }) });
   expect(ghost.status).toBe(404);
   const badPos = await fetch(`${base}/projects/${p.id}/cards/${c.id}/position`, { ...T, method: "PATCH", body: JSON.stringify({ position: "top" }) });
@@ -147,6 +151,23 @@ test("board reorder + worker limit routes (T8)", async () => {
   expect((await ok.json()).workerLimit).toBe(3);
   const ghostProject = await fetch(`${base}/projects/ghost`, { ...T, method: "PATCH", body: JSON.stringify({ workerLimit: 2 }) });
   expect(ghostProject.status).toBe(404);
+}, 15000);
+
+test("card timeline route returns ordered rows and 404s unknown cards", async () => {
+  const p = await (await fetch(`${base}/projects`, { ...T, method: "POST", body: JSON.stringify({ name: "TL", path: "/tmp", baseBranch: "main", skipGitCheck: true }) })).json();
+  const c = await (await fetch(`${base}/projects/${p.id}/cards`, { ...T, method: "POST", body: JSON.stringify({ title: "timeline" }) })).json();
+  appendTimeline(db, c.id, "progress", "first note");
+  appendTimeline(db, c.id, "round", "round two");
+
+  const ok = await fetch(`${base}/cards/${c.id}/timeline`, T);
+  expect(ok.status).toBe(200);
+  const rows = await ok.json();
+  expect(rows.map((row: any) => [row.kind, row.text])).toEqual([
+    ["progress", "first note"],
+    ["round", "round two"],
+  ]);
+  const ghost = await fetch(`${base}/cards/999999/timeline`, T);
+  expect(ghost.status).toBe(404);
 }, 15000);
 
 test("action routes map engine rejections: none-agent start 409, ghost card 404, illegal stop 409", async () => {

@@ -193,6 +193,10 @@ for (const s of ["working.error(crashed)", "working.error(interrupted)"] as cons
   );
 }
 
+// Task 11 keeps cross-column drag out of scope, so the existing resume route
+// is also the recovery affordance for an explicitly stopped card.
+LEGAL.push(["working.stopped", "resume", ["spawn-agent"], toStarting]);
+
 LEGAL.push(
   // review.ready -> running (cycle+1): send back
   ["review.ready", "send-back", [], (c, before) => {
@@ -223,7 +227,7 @@ const NOOP_CLEAR = [
 // --- tests ------------------------------------------------------------------
 
 test("spec 4.1 legal table: every row asserted with its effects", () => {
-  expect(LEGAL.length).toBe(68); // state-changing legal rows (+5 no-op clears = 73 legal calls)
+  expect(LEGAL.length).toBe(69); // state-changing legal rows (+5 no-op clears = 74 legal calls)
   for (const [from, evName, effects, check] of LEGAL) {
     const before = mk(STATES[from]);
     try {
@@ -272,7 +276,7 @@ test("illegal sweep: every remaining phase/sub x event pair throws", () => {
       expect(thrown.from.length).toBeGreaterThan(0);
     }
   }
-  expect(swept).toBe(17 * 20 - 73); // 267 illegal pairs
+  expect(swept).toBe(17 * 20 - 74); // 266 illegal pairs
 });
 
 test("illegal pairs throw (brief verbatim cases)", () => {

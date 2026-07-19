@@ -1,62 +1,189 @@
-import React, { useContext, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import type { Card as CardT } from "@codegent/protocol";
+import React, { useContext, useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { Card as CardT, Project } from "@codegent/protocol";
 import { api } from "../api";
+import { columnOf, type BoardColumn } from "../projection";
 import { AppCtx } from "./Shell";
 import { CardView } from "./Card";
+import { Details } from "./Details";
 
-type ColId = "queue" | "running" | "waiting" | "review" | "done";
+export { columnOf } from "../projection";
 
-const COLUMNS: { id: ColId; label: string }[] = [
-  { id: "queue", label: "QUEUE" }, { id: "running", label: "RUNNING" },
-  { id: "waiting", label: "WAITING FOR INPUT" }, { id: "review", label: "IN REVIEW" },
+const COLUMNS: { id: BoardColumn; label: string }[] = [
+  { id: "queue", label: "QUEUE" },
+  { id: "running", label: "RUNNING" },
+  { id: "waiting", label: "WAITING FOR INPUT" },
+  { id: "review", label: "IN REVIEW" },
   { id: "done", label: "DONE" },
 ];
 
-// v0.2: columns are a projection of the card, not 1:1 with phase — "waiting"
-// is no longer a phase but working + a raised input flag. Cancelled is hidden.
-const columnOf = (c: CardT): ColId | null =>
-  c.phase === "queued" ? "queue"
-  : c.phase === "working" ? (c.inputKind !== null ? "waiting" : "running")
-  : c.phase === "review" ? "review"
-  : c.phase === "done" ? "done"
-  : null;
+type DrawerState = { cardId: number; sendBack: boolean } | null;
 
-export function Board() {
+export function Board({ project }: { project: Project }) {
   const { projectId } = useContext(AppCtx);
   const qc = useQueryClient();
-  const [err, setErr] = useState<string | null>(null);
-  const cards = useQuery({ queryKey: ["cards", projectId], queryFn: () => api.get<CardT[]>(`/api/projects/${projectId}/cards`) });
-  // any successful mutation clears the strip; failures show the api error text
-  const invalidate = () => { setErr(null); qc.invalidateQueries({ queryKey: ["cards", projectId] }); };
-  const fail = (e: unknown) => setErr(e instanceof Error ? e.message : String(e));
+  const [notice, setNotice] = useState<string | null>(null);
+  const [drawer, setDrawer] = useState<DrawerState>(null);
+  const [discardedId, setDiscardedId] = useState<number | null>(null);
+  const [dragId, setDragId] = useState<number | null>(null);
+  const [now, setNow] = useState(Date.now());
+
+  const cards = useQuery({
+    queryKey: ["cards", projectId],
+    queryFn: () => api.get<CardT[]>(`/api/projects/${projectId}/cards`),
+  });
+  const interrupted = useQuery({
+    queryKey: ["interrupted"],
+    queryFn: () => api.get<{ cards: number[] }>("/api/state/interrupted"),
+    refetchInterval: 5000,
+  });
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    if (discardedId === null) return;
+    const timer = setTimeout(() => setDiscardedId(null), 6000);
+    return () => clearTimeout(timer);
+  }, [discardedId]);
+
+  const invalidate = () => {
+    setNotice(null);
+    void qc.invalidateQueries({ queryKey: ["cards", projectId] });
+    void qc.invalidateQueries({ queryKey: ["interrupted"] });
+    if (drawer) void qc.invalidateQueries({ queryKey: ["timeline", drawer.cardId] });
+  };
+  const fail = (_error: unknown) => setNotice("Action unavailable");
   const create = useMutation({
-    mutationFn: (v: { title: string; agent: CardT["agent"] }) => api.post<CardT>(`/api/projects/${projectId}/cards`, { ...v, body: "" }),
+    mutationFn: (value: { title: string; agent: CardT["agent"] }) => api.post<CardT>(`/api/projects/${projectId}/cards`, { ...value, body: "" }),
     onSuccess: invalidate,
     onError: fail,
   });
 
+  const grouped = useMemo(() => {
+    const result: Record<BoardColumn, CardT[]> = { queue: [], running: [], waiting: [], review: [], done: [] };
+    for (const card of cards.data ?? []) {
+      const column = columnOf(card);
+      if (column) result[column].push(card);
+    }
+    for (const column of COLUMNS) result[column.id].sort((a, b) => a.position - b.position || a.id - b.id);
+    return result;
+  }, [cards.data]);
+
+  const activeSlots = (cards.data ?? []).filter(card => card.phase === "working" && (card.workingSub === "starting" || card.workingSub === "running")).length;
+  const cancelledCount = (cards.data ?? []).filter(card => card.phase === "cancelled").length;
+  const selected = drawer ? (cards.data ?? []).find(card => card.id === drawer.cardId) ?? null : null;
+
+  const dropQueueCard = async (event: React.DragEvent<HTMLDivElement>, targetId: number) => {
+    event.preventDefault();
+    const sourceId = dragId ?? Number(event.dataTransfer.getData("text/plain"));
+    setDragId(null);
+    if (!Number.isInteger(sourceId) || sourceId === targetId) return;
+    const queue = grouped.queue;
+    const sourceIndex = queue.findIndex(card => card.id === sourceId);
+    const targetIndex = queue.findIndex(card => card.id === targetId);
+    if (sourceIndex < 0 || targetIndex < 0) return;
+
+    const source = queue[sourceIndex]!;
+    const ordered = queue.filter(card => card.id !== sourceId);
+    const targetWithoutSource = ordered.findIndex(card => card.id === targetId);
+    const insertion = targetWithoutSource + (sourceIndex < targetIndex ? 1 : 0);
+    ordered.splice(insertion, 0, source);
+    const index = ordered.findIndex(card => card.id === sourceId);
+    const before = ordered[index - 1];
+    const after = ordered[index + 1];
+    const position = before && after ? (before.position + after.position) / 2
+      : before ? before.position + 1
+      : after ? after.position - 1
+      : source.position;
+    try {
+      await api.patch(`/api/projects/${projectId}/cards/${sourceId}/position`, { position });
+      invalidate();
+    } catch (error) {
+      fail(error);
+    }
+  };
+
+  const undoDiscard = async () => {
+    if (discardedId === null) return;
+    const id = discardedId;
+    setDiscardedId(null);
+    try {
+      await api.post(`/api/cards/${id}/undo-discard`, {});
+      invalidate();
+    } catch (error) {
+      fail(error);
+    }
+  };
+
   return (
-    <div style={{ position: "relative", display: "flex", gap: 12, padding: 16, alignItems: "flex-start", overflow: "auto", flex: 1 }}>
-      {err && (
-        <div onClick={() => setErr(null)}
-          style={{ position: "absolute", top: 10, left: 12, right: 12, zIndex: 20, fontSize: 11, color: "var(--red)", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, padding: "6px 10px", cursor: "pointer" }}>
-          {err}
+    <div style={{ position: "relative", display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden" }}>
+      {notice && (
+        <button type="button" onClick={() => setNotice(null)}
+          style={{ position: "absolute", top: 10, left: 12, right: 12, zIndex: 30, padding: "6px 10px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--surface)", color: "var(--red)", font: "inherit", fontSize: 11, textAlign: "left", cursor: "pointer" }}>
+          {notice}
+        </button>
+      )}
+
+      {(interrupted.data?.cards.length ?? 0) > 0 && (
+        <div data-interrupted-banner style={{ display: "flex", alignItems: "center", gap: 7, margin: "12px 16px 0", padding: "7px 10px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface)", color: "var(--amber)", fontSize: 11 }}>
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 2.5 14 13H2Z"/><path d="M8 6.2v3.1M8 11.5h.01"/></svg>
+          {interrupted.data!.cards.length} cards interrupted — resume from their cards
         </div>
       )}
-      {COLUMNS.map(col => {
-        const list = (cards.data ?? []).filter(c => columnOf(c) === col.id);
-        return (
-          <div key={col.id} style={{ flex: 1, minWidth: 180 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, fontWeight: 650, letterSpacing: ".8px", color: "var(--dim)", marginBottom: 10 }}>
-              {col.label}
-              <span style={{ background: "var(--surface-2)", borderRadius: 999, padding: "0 7px", fontSize: 9.5, color: "var(--meta)" }}>{list.length}</span>
-            </div>
-            {list.map(c => <CardView key={c.id} card={c} onChanged={invalidate} onError={fail} />)}
-            {col.id === "queue" && <Composer onCreate={(title, agent) => create.mutate({ title, agent })} />}
-          </div>
-        );
-      })}
+
+      <div style={{ display: "flex", gap: 12, padding: 16, alignItems: "flex-start", overflow: "auto", flex: 1 }}>
+        {COLUMNS.map(column => {
+          const list = grouped[column.id];
+          return (
+            <section key={column.id} data-board-column={column.id} style={{ flex: 1, minWidth: column.id === "waiting" ? 205 : 190 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, minHeight: 20, marginBottom: 10, color: "var(--dim)", fontSize: 10, fontWeight: 650, letterSpacing: ".8px" }}>
+                {column.label}
+                <span style={{ padding: "1px 7px", borderRadius: 999, background: "var(--surface-2)", color: "var(--meta)", fontSize: 9.5 }}>{list.length}</span>
+                {column.id === "running" && <span data-slots style={{ marginLeft: "auto", padding: "1px 7px", border: "1px solid var(--border)", borderRadius: 999, background: "var(--surface)", color: activeSlots >= project.workerLimit ? "var(--amber)" : "var(--green)", fontSize: 9.5 }}>{activeSlots}/{project.workerLimit}</span>}
+              </div>
+              {list.map((card, index) => (
+                <CardView key={card.id} card={card} column={column.id} now={now}
+                  queuePosition={column.id === "queue" ? index + 1 : undefined}
+                  draggable={column.id === "queue"}
+                  onDragStart={column.id === "queue" ? event => {
+                    setDragId(card.id);
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("text/plain", String(card.id));
+                  } : undefined}
+                  onDragOver={column.id === "queue" ? event => {
+                    if ((dragId !== null || event.dataTransfer.types.includes("text/plain")) && dragId !== card.id) {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                    }
+                  } : undefined}
+                  onDrop={column.id === "queue" ? event => void dropQueueCard(event, card.id) : undefined}
+                  onDragEnd={() => setDragId(null)}
+                  onChanged={invalidate} onError={fail}
+                  onDetails={sendBack => setDrawer({ cardId: card.id, sendBack: !!sendBack })}
+                  onDiscarded={setDiscardedId} />
+              ))}
+              {column.id === "queue" && <Composer onCreate={(title, agent) => create.mutate({ title, agent })} />}
+              {column.id === "done" && cancelledCount > 0 && (
+                <div style={{ marginTop: 8, padding: "5px 8px", borderRadius: 6, background: "var(--surface)", color: "var(--dim)", fontSize: 10 }}>{cancelledCount} cancelled</div>
+              )}
+            </section>
+          );
+        })}
+      </div>
+
+      {selected && drawer && <Details card={selected} projectId={projectId} sendBack={drawer.sendBack} onClose={() => setDrawer(null)} onChanged={invalidate} onError={fail} />}
+
+      {discardedId !== null && (
+        <div role="status" style={{ position: "absolute", right: 14, bottom: 14, zIndex: 35, display: "flex", alignItems: "center", gap: 12, padding: "8px 10px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface)", boxShadow: "0 10px 30px var(--bg-deep)", color: "var(--text-2)", fontSize: 11 }}>
+          Card discarded
+          <button type="button" onClick={() => void undoDiscard()}
+            style={{ padding: "3px 8px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg)", color: "var(--green)", font: "inherit", fontSize: 10, fontWeight: 500, cursor: "pointer" }}>
+            Undo
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -66,27 +193,27 @@ function Composer({ onCreate }: { onCreate: (title: string, agent: CardT["agent"
   const [title, setTitle] = useState("");
   const [agent, setAgent] = useState<CardT["agent"]>("claude");
   if (!open) return (
-    <div onClick={() => setOpen(true)}
-      style={{ border: "1px dashed var(--border)", borderRadius: 8, color: "var(--dim)", fontSize: 11, textAlign: "center", padding: 7, cursor: "pointer" }}>
+    <button type="button" onClick={() => setOpen(true)}
+      style={{ width: "100%", padding: 7, border: "1px dashed var(--border)", borderRadius: 8, background: "var(--bg)", color: "var(--dim)", font: "inherit", fontSize: 11, textAlign: "center", cursor: "pointer" }}>
       + task
-    </div>
+    </button>
   );
   return (
-    <div style={{ border: "1px dashed var(--border)", borderRadius: 8, padding: "10px 12px" }}>
-      <input autoFocus value={title} onChange={e => setTitle(e.target.value)} placeholder="What should be done?"
-        onKeyDown={e => {
-          if (e.key === "Enter" && title.trim()) { onCreate(title.trim(), agent); setTitle(""); setOpen(false); }
-          if (e.key === "Escape") setOpen(false);
+    <div style={{ padding: "10px 11px", border: "1px dashed var(--border)", borderRadius: 8 }}>
+      <input autoFocus value={title} onChange={event => setTitle(event.target.value)} placeholder="What should be done?"
+        onKeyDown={event => {
+          if (event.key === "Enter" && title.trim()) { onCreate(title.trim(), agent); setTitle(""); setOpen(false); }
+          if (event.key === "Escape") setOpen(false);
         }}
-        style={{ width: "100%", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 6, color: "var(--text)", fontSize: 11, padding: "7px 10px", outline: "none" }} />
-      <div style={{ display: "flex", gap: 6, marginTop: 8, alignItems: "center" }}>
-        {(["claude", "codex", "none"] as const).map(a => (
-          <span key={a} onClick={() => setAgent(a)}
-            style={{ fontSize: 10, padding: "4px 9px", borderRadius: 6, cursor: "pointer",
-              border: `1px solid ${agent === a ? "var(--violet-2)" : "var(--border)"}`,
-              color: agent === a ? "#c4b5fd" : "var(--ctrl)" }}>{a}</span>
+        style={{ width: "100%", padding: "7px 9px", border: "1px solid var(--border)", borderRadius: 6, outline: "none", background: "var(--bg)", color: "var(--text)", font: "inherit", fontSize: 11 }} />
+      <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 8 }}>
+        {(["claude", "codex", "none"] as const).map(value => (
+          <button key={value} type="button" onClick={() => setAgent(value)}
+            style={{ padding: "3px 8px", border: `1px solid ${agent === value ? "var(--violet-2)" : "var(--border)"}`, borderRadius: 6, background: "var(--bg)", color: agent === value ? "var(--violet-2)" : "var(--ctrl)", font: "inherit", fontSize: 10, cursor: "pointer" }}>
+            {value}
+          </button>
         ))}
-        <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--dim)" }}>Enter → Queue</span>
+        <span style={{ marginLeft: "auto", color: "var(--dim)", fontSize: 10 }}>Enter → Queue</span>
       </div>
     </div>
   );

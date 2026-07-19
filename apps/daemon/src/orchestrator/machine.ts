@@ -23,7 +23,8 @@ import type { Card, InputKind } from "@codegent/protocol";
  *   review.merging          merged           done                      kill-sessions, archive-worktree
  *   working.<any>|rev.ready cancel           cancelled                 archive-worktree
  *   working.stopped|error   requeue          queued, auto:false        requeue-auto-off (worktree kept)
- *   working.error           resume|restart   working.starting          spawn-agent (same worktree)
+ *   working.stopped|error   resume           working.starting          spawn-agent (same worktree)
+ *   working.error           restart          working.starting          spawn-agent (same worktree)
  *   working.error           discard          queued, auto:false        archive-worktree, undo-toast
  *
  * v0.3-only rows (review stale/conflict/updating flows) are IllegalTransition
@@ -202,7 +203,13 @@ export function transition(card: Card, ev: MachineEvent, now: number): { card: C
       if (!(stopped || inError)) throw fail();
       return { card: toQueuedAutoOff(card, now), effects: ["requeue-auto-off"] };
     }
-    case "resume":
+    case "resume": {
+      if (!(inError || stopped)) throw fail();
+      return {
+        card: { ...card, workingSub: "starting", errorKind: null, updatedAt: now },
+        effects: ["spawn-agent"],
+      };
+    }
     case "restart": {
       if (!inError) throw fail();
       return {

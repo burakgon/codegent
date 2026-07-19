@@ -4,6 +4,7 @@ import { existsSync, statSync } from "node:fs";
 import { CardSchema, ProjectSchema, SessionMetaSchema, WorktreeSchema } from "@codegent/protocol";
 import { createProject, listProjects, setWorkerLimit } from "../store/projects";
 import { createCard, updateCard, deleteCard, getCard, listCards } from "../store/cards";
+import { listTimeline } from "../store/timeline";
 import { createWorktree, listWorktrees, slug } from "../git/worktrees";
 import type { PtyManager } from "../pty/manager";
 import { CardNotFound, NotStartable, NothingToUndo, type Engine } from "../orchestrator/engine";
@@ -19,7 +20,7 @@ const json = (data: unknown, status = 200) =>
 // the emitted DomainEvent fails EnvelopeSchema in the ws fan-out, and every
 // other tab silently desyncs.
 const CardCreateBody = CardSchema.pick({ title: true, body: true, agent: true }).partial({ body: true, agent: true });
-const CardPatchBody = CardSchema.pick({ title: true, body: true, phase: true, position: true, agent: true, worktreeId: true }).partial();
+const CardPatchBody = CardSchema.pick({ title: true, body: true, phase: true, position: true, agent: true, worktreeId: true, auto: true }).partial();
 const ProjectCreateBody = ProjectSchema.pick({ name: true, path: true, baseBranch: true }).partial({ baseBranch: true });
 const SessionCreateBody = SessionMetaSchema.pick({ title: true, cwd: true, worktreeId: true }).partial();
 const WorktreeCreateBody = WorktreeSchema.pick({ base: true }).partial();
@@ -137,6 +138,13 @@ async function handleApi(req: Request, url: URL, db: Database, ptys: PtyManager,
       `SELECT id FROM cards WHERE phase = 'working' AND working_sub = 'error' AND error_kind = 'interrupted' ORDER BY id`,
     ).all().map((r: any) => r.id as number);
     return json({ cards });
+  }
+  // Timeline prose is deliberately pull-only and card-scoped: it never rides
+  // the board event stream, so Details remains its sole rendering surface.
+  if ((x = m(/^\/api\/cards\/(\d+)\/timeline$/)) && req.method === "GET") {
+    const id = Number(x[1]);
+    if (!getCard(db, id)) return json({ error: "card not found" }, 404);
+    return json(listTimeline(db, id));
   }
   // Board reorder — queue ordering feeds R1's "topmost".
   if ((x = m(/^\/api\/projects\/([^/]+)\/cards\/(\d+)\/position$/)) && req.method === "PATCH") {

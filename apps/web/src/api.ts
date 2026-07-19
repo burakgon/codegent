@@ -1,5 +1,5 @@
 import { encodeEnvelope, decodeEnvelope, type DomainEvent } from "@codegent/protocol";
-import { nextDelay, Resubscriber } from "./wsCore";
+import { callCallbacks, nextDelay, Resubscriber } from "./wsCore";
 
 // Chunked, not `String.fromCharCode(...b)`: the daemon's first `term` frame
 // after `sub` is a full ring snapshot (up to 200KB), and spreading that many
@@ -70,7 +70,7 @@ export function connectWs(onEvent: (e: DomainEvent) => void): CgSocket {
   const setState = (s: WsState) => {
     if (s === state) return;
     state = s;
-    stateCbs.forEach(cb => cb(s));
+    callCallbacks(stateCbs, s);
   };
 
   const connect = () => {
@@ -88,8 +88,9 @@ export function connectWs(onEvent: (e: DomainEvent) => void): CgSocket {
       // reconnect callbacks run first so each pane clears its term, THEN subs
       // are re-sent from the map — the server answers every sub with the full
       // ring snapshot, which must land on a cleaned screen.
-      if (reopened) reconnectCbs.forEach(cb => cb());
-      core.sids().forEach(sid => sock.send(encodeEnvelope({ ch: "sub", sid })));
+      const sids = core.sids();
+      if (reopened) callCallbacks(reconnectCbs);
+      sids.forEach(sid => sock.send(encodeEnvelope({ ch: "sub", sid })));
       core.drain().forEach(f => sock.send(f));
     };
     sock.onmessage = m => {
@@ -108,10 +109,10 @@ export function connectWs(onEvent: (e: DomainEvent) => void): CgSocket {
   };
   connect();
 
-  const send = (frame: string) => {
+  const send = (frame: string, coalesceKey: string | null = null) => {
     // enqueue is a no-op once closed — v0.1 queued forever after close()
     if (ws.readyState === WebSocket.OPEN) ws.send(frame);
-    else core.enqueue(frame);
+    else core.enqueue(frame, coalesceKey);
   };
 
   return {
@@ -119,10 +120,12 @@ export function connectWs(onEvent: (e: DomainEvent) => void): CgSocket {
       return state;
     },
     onState(cb) {
+      if (core.isClosed) return () => {};
       stateCbs.add(cb);
       return () => { stateCbs.delete(cb); };
     },
     onReconnect(cb) {
+      if (core.isClosed) return () => {};
       reconnectCbs.add(cb);
       return () => { reconnectCbs.delete(cb); };
     },
@@ -140,7 +143,7 @@ export function connectWs(onEvent: (e: DomainEvent) => void): CgSocket {
       };
     },
     input: (sid, bytes) => send(encodeEnvelope({ ch: "input", sid, data: bytesToB64(bytes) })),
-    resize: (sid, cols, rows) => send(encodeEnvelope({ ch: "resize", sid, cols, rows })),
+    resize: (sid, cols, rows) => send(encodeEnvelope({ ch: "resize", sid, cols, rows }), `resize:${sid}`),
     close() {
       core.close(); // empties handlers + queue, blocks further sub/enqueue
       stateCbs.clear();

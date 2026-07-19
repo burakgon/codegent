@@ -89,7 +89,7 @@ export function Shell() {
           </div>
           {active && projectId ? (
             <AppCtx.Provider value={{ projectId, view, setView, socket }}>
-              {view === "board" && <Board />}
+              {view === "board" && <Board project={active} />}
               {view === "terminal" && <TerminalView project={active} />}
               {view === "diff" && <div style={{ display: "grid", placeItems: "center", flex: 1, color: "var(--dim)" }}>nothing to review</div>}
             </AppCtx.Provider>

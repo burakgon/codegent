@@ -617,6 +617,25 @@ test("stop writes \\x03 to the live session, parks the card in working.stopped, 
   expect(() => w.engine.stop(c.id)).toThrow(IllegalTransition);
 });
 
+test("resume continues an explicitly stopped card on the same attempt and worktree", async () => {
+  const w = await makeWorld();
+  const c = card(w, "pause and resume");
+  await toRunning(w, c);
+  const before = getCard(w.db, c.id)!;
+
+  w.engine.stop(c.id);
+  await w.engine.resume(c.id);
+
+  const cur = getCard(w.db, c.id)!;
+  const ctx = w.adapter.spawns.at(-1)!;
+  expect(cur.workingSub).toBe("starting");
+  expect(cur.attemptId).toBe(before.attemptId);
+  expect(cur.worktreeId).toBe(before.worktreeId);
+  expect(ctx.attempt.id).toBe(before.attemptId!);
+  expect(ctx.worktreePath).toBe(wtRows(w.db)[0]!.path);
+  expect(dispatchOf(w.db, c.id).status).toBe("running");
+});
+
 test("stop refills the freed slot: workerLimit 1, A running + B queued auto:on → stop(A) starts B with no explicit tick", async () => {
   const w = await makeWorld(); // workerLimit defaults to 1
   const a = card(w, "A holds the slot");

@@ -1,5 +1,19 @@
 import { describe, test, expect } from "bun:test";
-import { nextDelay, Resubscriber } from "../wsCore";
+import { callCallbacks, MAX_PENDING_FRAMES, nextDelay, Resubscriber } from "../wsCore";
+
+test("callback failures are isolated and callback additions wait for the next pass", () => {
+  const calls: string[] = [];
+  const callbacks = new Set<(value: string) => void>();
+  callbacks.add(value => { calls.push(`first:${value}`); throw new Error("boom"); });
+  callbacks.add(value => {
+    calls.push(`second:${value}`);
+    callbacks.add(next => calls.push(`late:${next}`));
+  });
+  callCallbacks(callbacks, "open");
+  expect(calls).toEqual(["first:open", "second:open"]);
+  callCallbacks(callbacks, "again");
+  expect(calls.slice(2)).toEqual(["first:again", "second:again", "late:again"]);
+});
 
 // Reconnect backoff: 1s → 2s → 4s → 8s, capped at 15s, ±20% jitter.
 describe("nextDelay", () => {
@@ -69,12 +83,39 @@ describe("Resubscriber", () => {
     expect(r.sids()).toEqual(["a"]); // still one sub, not two
   });
 
+  test("sids returns a reconnect snapshot, not a live view", () => {
+    const r = new Resubscriber();
+    r.add("a", () => {});
+    const beforeCallbacks = r.sids();
+    r.add("b", () => {});
+    expect(beforeCallbacks).toEqual(["a"]);
+    expect(r.sids()).toEqual(["a", "b"]);
+  });
+
   test("queue drains in order and empties", () => {
     const r = new Resubscriber();
     r.enqueue("one");
     r.enqueue("two");
     expect(r.drain()).toEqual(["one", "two"]);
     expect(r.drain()).toEqual([]);
+  });
+
+  test("pending resize frames coalesce per sid and retain latest ordering", () => {
+    const r = new Resubscriber();
+    r.enqueue("resize-a-1", "resize:a");
+    r.enqueue("input-a");
+    r.enqueue("resize-b-1", "resize:b");
+    r.enqueue("resize-a-2", "resize:a");
+    expect(r.drain()).toEqual(["input-a", "resize-b-1", "resize-a-2"]);
+  });
+
+  test("pending send queue is capped", () => {
+    const r = new Resubscriber();
+    for (let i = 0; i < MAX_PENDING_FRAMES + 10; i++) r.enqueue(`frame-${i}`);
+    const drained = r.drain();
+    expect(drained).toHaveLength(MAX_PENDING_FRAMES);
+    expect(drained[0]).toBe("frame-10");
+    expect(drained.at(-1)).toBe(`frame-${MAX_PENDING_FRAMES + 9}`);
   });
 
   // close() empties handlers + queue — the v0.1 leak was a queue that kept
