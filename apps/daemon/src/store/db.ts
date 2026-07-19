@@ -42,6 +42,15 @@ export const MIGRATIONS = [
      created_at INTEGER NOT NULL);
    ALTER TABLE sessions ADD COLUMN adapter_session_id TEXT;
    ALTER TABLE sessions ADD COLUMN attempt_id INTEGER;`,
+  // v0.2 signal plane (T6): per-card timeline (progress notes + round history —
+  // Details-drawer-only per spec §7.3, never card faces) and the pre-engine
+  // pending-complete marker: a gate-passed task_complete recorded store-side on
+  // the still-running dispatch. T8's complete-eval consumes it; until then no
+  // card transition happens on completion.
+  `CREATE TABLE timeline (
+     id INTEGER PRIMARY KEY AUTOINCREMENT, card_id INTEGER NOT NULL REFERENCES cards(id),
+     ts INTEGER NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL);
+   ALTER TABLE dispatches ADD COLUMN pending_complete INTEGER NOT NULL DEFAULT 0;`,
 ];
 
 export function openDb(path: string): Database {

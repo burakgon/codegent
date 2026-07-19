@@ -11,10 +11,15 @@ const PORT_MAX = 4766; // exclusive
  * port from 4666 upward. The probe binds with `Bun.listen` (throws
  * EADDRINUSE synchronously when busy) and releases via `stop()` right
  * before `Bun.serve` rebinds it — verified against Bun 1.3.14.
+ *
+ * Data dir layout: `token` (UI-plane auth) · `db.sqlite` · `rings/` (PTY
+ * scrollback) · `agents/` 0700 (signal plane: `endpoint.env` 0600 + `hook.sh`,
+ * written by the hook receiver; T7 adds per-dispatch config dirs).
  */
 export function loadConfig(): { port: number; dataDir: string; token: string } {
   const dataDir = process.env.CODEGENT_DATA_DIR ?? join(homedir(), ".codegent");
   mkdirSync(dataDir, { recursive: true });
+  mkdirSync(join(dataDir, "agents"), { recursive: true, mode: 0o700 });
   const tokenPath = join(dataDir, "token");
   if (!existsSync(tokenPath)) writeFileSync(tokenPath, crypto.randomUUID().replace(/-/g, ""));
   const token = readFileSync(tokenPath, "utf8").trim();

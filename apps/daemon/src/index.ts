@@ -3,6 +3,7 @@ import { loadConfig } from "./config";
 import { openDb } from "./store/db";
 import { PtyManager, sweepDeadRings } from "./pty/manager";
 import { startServer } from "./http/server";
+import { startHookReceiver, writeHookScript } from "./agents/receiver";
 
 const cfg = loadConfig();
 const db = openDb(join(cfg.dataDir, "db.sqlite"));
@@ -17,6 +18,11 @@ db.query(`UPDATE sessions SET live = 0`).run();
 sweepDeadRings(db, cfg.dataDir);
 
 const ptys = new PtyManager(db, cfg.dataDir);
+// Signal plane: loopback hook receiver + agent API on a random port with its
+// own token (endpoint file + hook script under <dataDir>/agents). Adapters
+// (T7) subscribe via receiver.onHook and spawn sidecars against it.
+const receiver = startHookReceiver({ dataDir: cfg.dataDir, db });
+writeHookScript(cfg.dataDir);
 const srv = startServer(cfg, db, ptys);
 console.log(`codegent daemon → ${srv.url}?t=${cfg.token}`);
 
@@ -33,6 +39,7 @@ async function shutdown(): Promise<void> {
   if (shuttingDown) process.exit(1);
   shuttingDown = true;
   srv.stop();
+  receiver.stop(); // same phase: stop accepting traffic (hook scripts fail open)
   const live = ptys.liveSessions();
   for (const s of live) s.kill();
   await Promise.allSettled(live.map(s => s.exited));

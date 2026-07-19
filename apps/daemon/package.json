@@ -1,5 +1,13 @@
 {
-  "name": "@codegent/daemon", "version": "0.0.1", "type": "module",
-  "scripts": { "dev": "bun --watch src/index.ts", "typecheck": "tsc --noEmit" },
-  "dependencies": { "@codegent/protocol": "workspace:*" }
+  "name": "@codegent/daemon",
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@codegent/protocol": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.29.0"
+  }
 }

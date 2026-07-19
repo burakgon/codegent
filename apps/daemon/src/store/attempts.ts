@@ -50,3 +50,21 @@ export function touchDispatchProgress(db: Database, dispatchId: string, ts: numb
 export function failRunningDispatches(db: Database): number {
   return db.query(`UPDATE dispatches SET status = 'failed' WHERE status = 'running'`).run().changes;
 }
+
+/**
+ * Pre-engine completion path (T6): record a gate-passed `task_complete` as a
+ * pending-complete marker WITHOUT transitioning anything. Guarded by the same
+ * write-once discipline as `completeDispatch`: only a still-running dispatch
+ * accepts it; a stale retry against a terminal dispatch returns false and is
+ * dropped. T8's complete-eval reads the marker via `pendingComplete`.
+ */
+export function markPendingComplete(db: Database, dispatchId: string): boolean {
+  return db.query(`UPDATE dispatches SET pending_complete = 1 WHERE id = ?1 AND status = 'running'`)
+    .run(dispatchId).changes > 0;
+}
+
+/** Did an accepted task_complete arrive for this dispatch? (Engine's complete-eval input.) */
+export function pendingComplete(db: Database, dispatchId: string): boolean {
+  const r = db.query(`SELECT pending_complete FROM dispatches WHERE id = ?1`).get(dispatchId) as any;
+  return !!r?.pending_complete;
+}
