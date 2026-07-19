@@ -1,0 +1,12 @@
+:root {
+  --bg:#0d1117; --bg-deep:#010409; --surface:#161b22; --surface-2:#21262d;
+  --border:#30363d; --hairline:#1c2128;
+  --text:#e6edf3; --text-2:#adbac7; --ctrl:#9aa4b2; --meta:#7d8590; --dim:#57606a;
+  --violet:#6d28d9; --violet-2:#8b5cf6;
+  --amber:#e8c163; --amber-dim:#9d8b4a; --red:#ffa198; --green:#7ee2a8;
+  --git-green:#3fb950; --git-red:#f85149;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 12px/1.5 -apple-system, "Segoe UI", sans-serif; }
+.mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
