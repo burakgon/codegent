@@ -1,0 +1,34 @@
+# codegent CI. Agent requirements: git and bun >= 1.3.14 on PATH.
+# (1.3.14 is the floor for bunfig `test.pathIgnorePatterns`, which keeps
+# `bun test` from sweeping the vendored ghostty-web suite — see bunfig.toml.)
+#
+# The ghostty-web submodule is needed at install time only for its
+# package.json (`file:` dependency of apps/web); no test imports the package,
+# so CI never builds its wasm/dist and agents need no Zig. The init is
+# deliberately non-recursive: ghostty-web's nested `ghostty` submodule
+# (~206MB) is a wasm-build-only input.
+#
+# SHELL must exist in the process env: the daemon's PTY tests spawn
+# `$SHELL -i` with a /bin/zsh fallback, and Linux agents may have neither
+# SHELL exported nor zsh installed. Verified on Linux (bun 1.3.14): without
+# SHELL the 5 PTY tests fail; with it, 19/19 pass. /bin/bash exists on both
+# agent platforms.
+env:
+  SHELL: /bin/bash
+
+steps:
+  - label: ":linux: test"
+    key: linux
+    agents: { os: linux }
+    command: |
+      git submodule update --init
+      bun install --frozen-lockfile
+      bun test
+
+  - label: ":mac: test"
+    key: mac
+    agents: { os: macos }
+    command: |
+      git submodule update --init
+      bun install --frozen-lockfile
+      bun test
