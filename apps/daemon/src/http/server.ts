@@ -52,7 +52,8 @@ async function handleApi(req: Request, url: URL, db: Database, ptys: PtyManager)
     }
     const baseBranch = v.data.baseBranch ?? (await resolveBaseBranch(v.data.path));
     const project = createProject(db, { name: v.data.name, path: v.data.path, baseBranch });
-    events.emit({ t: "project", project });
+    // no domain event: "project" left the v0.2 DomainEvent union — project
+    // lists are fetch-on-load, only card/session/attempt/notice are live
     return json(project, 201);
   }
 

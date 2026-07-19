@@ -17,8 +17,8 @@ test("card lifecycle", () => {
   const c2 = createCard(db, { projectId: p.id, title: "Second", body: "", agent: "none" });
   expect(c1.phase).toBe("queued");
   expect(c2.position).toBeGreaterThan(c1.position);
-  const moved = updateCard(db, c2.id, { phase: "running" });
-  expect(moved.phase).toBe("running");
+  const moved = updateCard(db, c2.id, { phase: "working" });
+  expect(moved.phase).toBe("working");
   deleteCard(db, c1.id);
   expect(listCards(db, p.id).map(c => c.id)).toEqual([c2.id]);
 });

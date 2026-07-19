@@ -2,7 +2,9 @@ import React, { useState } from "react";
 import type { Card, CardPhase } from "@codegent/protocol";
 import { api } from "../api";
 
-const PHASES: CardPhase[] = ["queued", "running", "waiting", "review", "done", "cancelled"];
+// v0.2 phases — "waiting" is gone (it's a projection of working + input flag,
+// not a phase), so the manual "move → waiting" affordance disappears with it.
+const PHASES: CardPhase[] = ["queued", "working", "review", "done", "cancelled"];
 
 export function CardView({ card, onChanged, onError }: { card: Card; onChanged: () => void; onError: (e: unknown) => void }) {
   const [menu, setMenu] = useState(false);

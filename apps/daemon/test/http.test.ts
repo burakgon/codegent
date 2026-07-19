@@ -30,14 +30,14 @@ test("project + card REST roundtrip + ws event", async () => {
   const p = await (await fetch(`${base}/projects`, { ...T, method: "POST", body: JSON.stringify({ name: "X", path: "/tmp", baseBranch: "main", skipGitCheck: true }) })).json();
   const c = await (await fetch(`${base}/projects/${p.id}/cards`, { ...T, method: "POST", body: JSON.stringify({ title: "hello", body: "", agent: "none" }) })).json();
   expect(c.phase).toBe("queued");
-  const moved = await (await fetch(`${base}/cards/${c.id}`, { ...T, method: "PATCH", body: JSON.stringify({ phase: "running" }) })).json();
-  expect(moved.phase).toBe("running");
+  const moved = await (await fetch(`${base}/cards/${c.id}`, { ...T, method: "PATCH", body: JSON.stringify({ phase: "working" }) })).json();
+  expect(moved.phase).toBe("working");
   // symbols-only worktree name must be rejected at the API boundary, not by git
   const bad = await fetch(`${base}/projects/${p.id}/worktrees`, { ...T, method: "POST", body: JSON.stringify({ name: "###" }) });
   expect(bad.status).toBe(400);
   expect((await bad.json()).error).toBe("invalid name");
   await Bun.sleep(200);
-  expect(events.some(e => e.t === "card" && e.card.phase === "running")).toBe(true);
+  expect(events.some(e => e.t === "card" && e.card.phase === "working")).toBe(true);
   ws.close();
 }, 15000);
 

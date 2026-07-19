@@ -1,13 +1,5 @@
 import { z } from "zod";
-import { CardSchema, ProjectSchema, SessionMetaSchema } from "./entities";
-
-export const DomainEventSchema = z.discriminatedUnion("t", [
-  z.object({ t: z.literal("card"), card: CardSchema }),
-  z.object({ t: z.literal("cardDeleted"), id: z.number() }),
-  z.object({ t: z.literal("session"), session: SessionMetaSchema }),
-  z.object({ t: z.literal("project"), project: ProjectSchema }),
-]);
-export type DomainEvent = z.infer<typeof DomainEventSchema>;
+import { DomainEventSchema } from "./events";
 
 export const EnvelopeSchema = z.discriminatedUnion("ch", [
   z.object({ ch: z.literal("term"), sid: z.string(), data: z.string() }),

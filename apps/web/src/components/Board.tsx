@@ -1,15 +1,26 @@
 import React, { useContext, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import type { Card as CardT, CardPhase } from "@codegent/protocol";
+import type { Card as CardT } from "@codegent/protocol";
 import { api } from "../api";
 import { AppCtx } from "./Shell";
 import { CardView } from "./Card";
 
-const COLUMNS: { phase: CardPhase; label: string }[] = [
-  { phase: "queued", label: "QUEUE" }, { phase: "running", label: "RUNNING" },
-  { phase: "waiting", label: "WAITING FOR INPUT" }, { phase: "review", label: "IN REVIEW" },
-  { phase: "done", label: "DONE" },
+type ColId = "queue" | "running" | "waiting" | "review" | "done";
+
+const COLUMNS: { id: ColId; label: string }[] = [
+  { id: "queue", label: "QUEUE" }, { id: "running", label: "RUNNING" },
+  { id: "waiting", label: "WAITING FOR INPUT" }, { id: "review", label: "IN REVIEW" },
+  { id: "done", label: "DONE" },
 ];
+
+// v0.2: columns are a projection of the card, not 1:1 with phase — "waiting"
+// is no longer a phase but working + a raised input flag. Cancelled is hidden.
+const columnOf = (c: CardT): ColId | null =>
+  c.phase === "queued" ? "queue"
+  : c.phase === "working" ? (c.inputKind !== null ? "waiting" : "running")
+  : c.phase === "review" ? "review"
+  : c.phase === "done" ? "done"
+  : null;
 
 export function Board() {
   const { projectId } = useContext(AppCtx);
@@ -34,15 +45,15 @@ export function Board() {
         </div>
       )}
       {COLUMNS.map(col => {
-        const list = (cards.data ?? []).filter(c => c.phase === col.phase);
+        const list = (cards.data ?? []).filter(c => columnOf(c) === col.id);
         return (
-          <div key={col.phase} style={{ flex: 1, minWidth: 180 }}>
+          <div key={col.id} style={{ flex: 1, minWidth: 180 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, fontWeight: 650, letterSpacing: ".8px", color: "var(--dim)", marginBottom: 10 }}>
               {col.label}
               <span style={{ background: "var(--surface-2)", borderRadius: 999, padding: "0 7px", fontSize: 9.5, color: "var(--meta)" }}>{list.length}</span>
             </div>
             {list.map(c => <CardView key={c.id} card={c} onChanged={invalidate} onError={fail} />)}
-            {col.phase === "queued" && <Composer onCreate={(title, agent) => create.mutate({ title, agent })} />}
+            {col.id === "queue" && <Composer onCreate={(title, agent) => create.mutate({ title, agent })} />}
           </div>
         );
       })}
