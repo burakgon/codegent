@@ -4,7 +4,12 @@
   "workspaces": ["packages/*", "apps/*"],
   "scripts": {
     "test": "bun test",
+    "typecheck": "bun run --cwd packages/protocol typecheck && bun run --cwd apps/daemon typecheck && bun run --cwd apps/web typecheck",
     "dev:daemon": "bun run --cwd apps/daemon dev",
     "dev:web": "bun run --cwd apps/web dev"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "typescript": "^7.0.2"
   }
 }

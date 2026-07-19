@@ -32,3 +32,16 @@ steps:
       git submodule update --init
       bun install --frozen-lockfile
       bun test
+
+  # Typecheck is platform-independent, so one Linux agent is enough. The
+  # submodule init is still needed for `bun install` (file: dep package.json,
+  # same as the test steps). tsc does NOT need the vendor dist/ build: when
+  # dist/index.d.ts is absent, apps/web/tsconfig.json `paths` falls back to
+  # the checked-in snapshot apps/web/types/ghostty-web.d.ts.
+  - label: ":typescript: typecheck"
+    key: typecheck
+    agents: { os: linux }
+    command: |
+      git submodule update --init
+      bun install --frozen-lockfile
+      bun run typecheck

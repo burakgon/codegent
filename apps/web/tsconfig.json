@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"],
+    // ghostty-web's types live in its dist/, which is a local build output the
+    // CI agents never produce (no Zig — see .buildkite/pipeline.yml). First
+    // match that exists wins: the real built d.ts locally, the checked-in
+    // snapshot (types/ghostty-web.d.ts) on CI. If the snapshot drifts after a
+    // submodule bump, local (real) and CI (snapshot) results diverge — that CI
+    // failure is the signal to refresh the snapshot.
+    "paths": {
+      "ghostty-web": ["../../vendor/ghostty-web/dist/index.d.ts", "./types/ghostty-web.d.ts"]
+    }
+  },
+  "include": ["src", "spike", "vite.config.ts"],
+  // src/test runs under `bun test` and needs bun-types; keeping it in a
+  // separate program (tsconfig.test.json) keeps Bun/Node globals like Buffer
+  // out of browser-only code.
+  "exclude": ["src/test"]
+}

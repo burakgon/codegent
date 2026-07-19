@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // The tests run under `bun test` but import browser modules (src/api.ts
+    // uses location/localStorage), so both DOM and Bun types are needed.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["bun"]
+  },
+  "include": ["src/test"]
+}
