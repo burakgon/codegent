@@ -97,6 +97,22 @@ test("POST under a ghost project → 404 project not found, all three routes", a
   }
 }, 15000);
 
+test("POST under a ghost project with an INVALID body → still 404 (404-before-400 precedence)", async () => {
+  // The missing parent must win over body validation on every project-scoped
+  // POST — otherwise the error class depends on payload quality and probing
+  // bodies against ghost projects leaks validation behavior.
+  const routes: Array<[string, unknown]> = [
+    ["cards", { title: 123 }],
+    ["sessions", { cwd: 42 }],
+    ["worktrees", { base: 42 }],
+  ];
+  for (const [route, body] of routes) {
+    const r = await fetch(`${base}/projects/ghost/${route}`, { ...T, method: "POST", body: JSON.stringify(body) });
+    expect(r.status).toBe(404);
+    expect((await r.json()).error).toBe("project not found");
+  }
+}, 15000);
+
 test("POST sessions on a real project still opens a shell (cwd falls back to project path)", async () => {
   const p = await (await fetch(`${base}/projects`, { ...T, method: "POST", body: JSON.stringify({ name: "S", path: "/tmp", baseBranch: "main", skipGitCheck: true }) })).json();
   const r = await fetch(`${base}/projects/${p.id}/sessions`, { ...T, method: "POST", body: JSON.stringify({}) });

@@ -56,3 +56,18 @@ NOT runtime-verified — do not rely on reuse in Task 6; create a fresh Terminal
 - Honor backpressure: `write()` returns bytes written; use `drain` before resuming large writes.
 - Resize is plain `term.resize(cols, rows)` + kernel SIGWINCH — no extra plumbing.
 - Always `term.close()` after `proc.exited` (or use `await using`) to free the PTY fd.
+
+## Kill semantics (probe-verified, Bun 1.3.14 — v0.2 T4)
+
+- **`Subprocess.kill(signal)` signals the child PID only — there is NO
+  group-kill primitive.** A probe that looked like group delivery was actually
+  the kernel: the PTY child is spawned as **session + process-group leader**,
+  so when the leader exits the kernel sends SIGHUP to the foreground pgroup —
+  that cascade is what kills well-behaved descendants, not Bun.
+- **HUP-immune grandchildren survive** both the cascade and the full
+  SIGHUP→SIGTERM→SIGKILL terminate ladder (each rung lands on the direct child
+  only). Verified live with a `(trap "" HUP; sleep 40) &` grandchild.
+- Consequence for reaping (§6.1 post-exit reaping of leftover MCP-server
+  children, an engine concern): with no group-kill in Bun, reaping needs
+  **pgid discovery** (`ps -o pgid` on the dead child's group, then signal the
+  survivors directly) or per-child PID tracking.

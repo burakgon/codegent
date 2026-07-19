@@ -122,7 +122,10 @@ test("pty session: opts.env merges over the scrubbed base", async () => {
 test("pty session: terminate() escalates past an ignored SIGHUP within budget", async () => {
   const ringPath = `/tmp/codegent-term-${crypto.randomUUID()}.bin`;
   // SIGHUP-immune child: the ladder's first rung must fail, SIGTERM must land.
-  const s = new PtySession({ id: "term1", cwd: "/tmp", cmd: ["sh", "-c", "trap '' HUP; sleep 30"], ringPath });
+  // `exec` replaces sh with sleep in the SAME process (ignored-signal
+  // dispositions survive exec), so SIGTERM kills it directly and no
+  // grandchild `sleep 30` is orphaned per run (T4 review rider).
+  const s = new PtySession({ id: "term1", cwd: "/tmp", cmd: ["sh", "-c", "trap '' HUP; exec sleep 30"], ringPath });
   await Bun.sleep(250); // let sh install the trap, else SIGHUP wins the race and rung 1 kills it
   const t0 = performance.now();
   const code = await s.terminate();
