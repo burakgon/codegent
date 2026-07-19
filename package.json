@@ -1,0 +1,10 @@
+{
+  "name": "codegent",
+  "private": true,
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "test": "bun test --pass-with-no-tests",
+    "dev:daemon": "bun run --cwd apps/daemon dev",
+    "dev:web": "bun run --cwd apps/web dev"
+  }
+}

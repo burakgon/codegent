@@ -1,0 +1,5 @@
+{
+  "name": "@codegent/daemon", "version": "0.0.1", "type": "module",
+  "scripts": { "dev": "bun --watch src/index.ts" },
+  "dependencies": { "@codegent/protocol": "workspace:*" }
+}
