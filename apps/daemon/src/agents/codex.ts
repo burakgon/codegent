@@ -138,7 +138,7 @@ export class CodexAdapter implements AgentAdapter {
     if (this.deps.userCodexDir) return this.deps.userCodexDir;
     // A custom $CODEX_HOME is where the user's real config/credentials live —
     // mirror from THERE. But never from our own managed tree: a daemon
-    // launched from inside a codegent agent pane inherits
+    // launched from inside a rvmp agent pane inherits
     // CODEX_HOME=<per-dispatch home>, and self-mirroring would stack managed
     // blocks into invalid TOML. The whole `<dataDir>/agents/` tree is ours
     // (per-dispatch homes + the shared store), and BOTH sides are realpath'd
@@ -161,7 +161,7 @@ export class CodexAdapter implements AgentAdapter {
    * envelope race). Layout under `<dataDir>/agents/<dispatchId>/`:
    *   config.toml — user's config.toml copy (if present) + the managed block:
    *                 project trust for the worktree (so the trust onboarding
-   *                 menu never swallows the injected prompt) and the codegent
+   *                 menu never swallows the injected prompt) and the rvmp
    *                 MCP sidecar entry with this dispatch's envelope and
    *                 server-scoped approval for its trusted plumbing tools.
    *   auth.json   — copy of the user's credentials (the spike's recorded
@@ -203,20 +203,20 @@ export class CodexAdapter implements AgentAdapter {
       trustPaths.add(realpathSync(ctx.worktreePath));
     } catch {} // path not on disk yet — the literal entry stands alone
     // Codex 0.144.6 supports a per-server tool default. Keep this scoped to
-    // codegent so ask-mode approvals for every other agent action are intact.
+    // rvmp so ask-mode approvals for every other agent action are intact.
     const managed = [
-      "# --- managed by codegent (regenerated at each spawn; edits are overwritten) ---",
+      "# --- managed by rvmp (regenerated at each spawn; edits are overwritten) ---",
       ...[...trustPaths].flatMap((p) => [`[projects.${tomlStr(p)}]`, `trust_level = "trusted"`, ""]),
-      "[mcp_servers.codegent]",
+      "[mcp_servers.rvmp]",
       `command = "bun"`,
       `args = [${tomlStr(join(import.meta.dir, "mcp-entry.ts"))}]`,
       `default_tools_approval_mode = "approve"`,
       "",
-      "[mcp_servers.codegent.env]",
-      `CODEGENT_HOOK_PORT = ${tomlStr(String(this.deps.hookPort))}`,
-      `CODEGENT_HOOK_TOKEN = ${tomlStr(this.deps.hookToken)}`,
-      `CODEGENT_CARD_ID = ${tomlStr(String(ctx.card.id))}`,
-      `CODEGENT_DISPATCH_ID = ${tomlStr(ctx.dispatch.id)}`,
+      "[mcp_servers.rvmp.env]",
+      `RVMP_HOOK_PORT = ${tomlStr(String(this.deps.hookPort))}`,
+      `RVMP_HOOK_TOKEN = ${tomlStr(this.deps.hookToken)}`,
+      `RVMP_CARD_ID = ${tomlStr(String(ctx.card.id))}`,
+      `RVMP_DISPATCH_ID = ${tomlStr(ctx.dispatch.id)}`,
     ].join("\n");
     writePrivate(join(home, "config.toml"), (base ? base + "\n\n" : "") + managed + "\n");
 
@@ -227,13 +227,13 @@ export class CodexAdapter implements AgentAdapter {
     // --- hooks.json: the 10-event registration (spike-recorded shape) -------
     // Identity: baked dispatch id with an env-preferring guard. The home is
     // per-dispatch, so the baked id always belongs to THIS dispatch; the
-    // `${CODEGENT_SESSION_ID:-<baked>}` wrapper stays as belt-and-braces —
+    // `${RVMP_SESSION_ID:-<baked>}` wrapper stays as belt-and-braces —
     // each codex process resolves its OWN spawn-time env id first (hook
     // commands run via `$SHELL -lc` and inherit the PTY env), falling back to
     // the baked id if codex ever scrubbed its hook env. POSIX assignment
     // context: the expansion never field-splits.
     const command =
-      `CODEGENT_SESSION_ID=\${CODEGENT_SESSION_ID:-${shq(ctx.dispatch.id)}} ${shq(hookScript)} codex`;
+      `RVMP_SESSION_ID=\${RVMP_SESSION_ID:-${shq(ctx.dispatch.id)}} ${shq(hookScript)} codex`;
     const entry = [{ hooks: [{ type: "command", command }] }];
     writePrivate(
       join(home, "hooks.json"),
@@ -274,7 +274,7 @@ export class CodexAdapter implements AgentAdapter {
     ];
 
     // scrubAgentEnv drops CLAUDE* and pins TERM (shared spawn hygiene);
-    // CODEX_HOME points codex at this dispatch's home; CODEGENT_* rides on
+    // CODEX_HOME points codex at this dispatch's home; RVMP_* rides on
     // top for the hook script's env identity (primary under the
     // env-preferring bake).
     const meta = ptys.open({
@@ -287,9 +287,9 @@ export class CodexAdapter implements AgentAdapter {
       env: {
         ...scrubAgentEnv(process.env),
         CODEX_HOME: home,
-        CODEGENT_HOOK_PORT: String(hookPort),
-        CODEGENT_HOOK_TOKEN: hookToken,
-        CODEGENT_SESSION_ID: ctx.dispatch.id,
+        RVMP_HOOK_PORT: String(hookPort),
+        RVMP_HOOK_TOKEN: hookToken,
+        RVMP_SESSION_ID: ctx.dispatch.id,
       },
       attemptId: ctx.attempt.id,
     });

@@ -1,5 +1,5 @@
 import React from "react";
-import type { Project } from "@codegent/protocol";
+import type { Project } from "@rvmp/protocol";
 
 export function Sidebar({ projects, activeId, onSelect, onAdd }: {
   projects: Project[]; activeId: string | null; onSelect: (id: string) => void; onAdd?: () => void;
@@ -7,7 +7,7 @@ export function Sidebar({ projects, activeId, onSelect, onAdd }: {
   return (
     <div style={{ width: 228, background: "var(--bg-deep)", borderRight: "1px solid var(--surface-2)", padding: "14px 10px", display: "flex", flexDirection: "column" }}>
       <div style={{ fontSize: 13, fontWeight: 500, padding: "0 8px 16px" }}>
-        code<span style={{ background: "linear-gradient(90deg,var(--violet-2),var(--cyan))", WebkitBackgroundClip: "text", color: "transparent" }}>gent</span>
+        rv<span style={{ background: "linear-gradient(90deg,var(--violet-2),var(--cyan))", WebkitBackgroundClip: "text", color: "transparent" }}>mp</span>
       </div>
       <div style={{ display: "flex", alignItems: "center", fontSize: 10, fontWeight: 650, letterSpacing: ".8px", color: "var(--dim)", padding: "0 8px 8px" }}>
         PROJECTS

@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import type { Card, DomainEvent } from "@codegent/protocol";
+import type { Card, DomainEvent } from "@rvmp/protocol";
 
 // §8 event log: "what happened while I slept". Rows are STATE FACTS —
 // card-state entries + notices, title snapshots only, never terminal content.

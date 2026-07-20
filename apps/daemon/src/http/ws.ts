@@ -1,5 +1,5 @@
 import type { ServerWebSocket } from "bun";
-import { encodeEnvelope, decodeEnvelope, type DomainEvent } from "@codegent/protocol";
+import { encodeEnvelope, decodeEnvelope, type DomainEvent } from "@rvmp/protocol";
 import type { PtyManager } from "../pty/manager";
 import { events } from "../events";
 

@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import type { Card } from "@codegent/protocol";
+import type { Card } from "@rvmp/protocol";
 import { Classifier, STARTUP_GRACE_MS, type DetectState } from "../detect/classifier";
 import { GhosttyScreenGrid } from "../detect/spike-grid";
 import {
@@ -112,10 +112,10 @@ function sidecar(ctx: SpawnCtx, deps: UniversalAdapterDeps): Sidecar {
     command: "bun",
     args: [join(import.meta.dir, "mcp-entry.ts")],
     env: {
-      CODEGENT_HOOK_PORT: String(deps.hookPort),
-      CODEGENT_HOOK_TOKEN: deps.hookToken,
-      CODEGENT_CARD_ID: String(ctx.card.id),
-      CODEGENT_DISPATCH_ID: ctx.dispatch.id,
+      RVMP_HOOK_PORT: String(deps.hookPort),
+      RVMP_HOOK_TOKEN: deps.hookToken,
+      RVMP_CARD_ID: String(ctx.card.id),
+      RVMP_DISPATCH_ID: ctx.dispatch.id,
     },
   };
 }
@@ -130,12 +130,12 @@ function launchFor(
   const mcp = sidecar(ctx, deps);
   const env: Record<string, string> = {
     ...scrubAgentEnv(process.env),
-    CODEGENT_AGENT: agent,
-    CODEGENT_HOOK_PORT: String(deps.hookPort),
-    CODEGENT_HOOK_TOKEN: deps.hookToken,
-    CODEGENT_CARD_ID: String(ctx.card.id),
-    CODEGENT_DISPATCH_ID: ctx.dispatch.id,
-    CODEGENT_SESSION_ID: ctx.dispatch.id,
+    RVMP_AGENT: agent,
+    RVMP_HOOK_PORT: String(deps.hookPort),
+    RVMP_HOOK_TOKEN: deps.hookToken,
+    RVMP_CARD_ID: String(ctx.card.id),
+    RVMP_DISPATCH_ID: ctx.dispatch.id,
+    RVMP_SESSION_ID: ctx.dispatch.id,
   };
 
   switch (agent) {
@@ -143,7 +143,7 @@ function launchFor(
       const path = join(dir, "gemini-settings.json");
       writePrivate(
         path,
-        JSON.stringify({ mcpServers: { codegent: { ...mcp, trust: true } } }, null, 2),
+        JSON.stringify({ mcpServers: { rvmp: { ...mcp, trust: true } } }, null, 2),
       );
       return { cmd: ["gemini"], env: { ...env, GEMINI_CLI_SYSTEM_SETTINGS_PATH: path } };
     }
@@ -154,7 +154,7 @@ function launchFor(
         JSON.stringify(
           {
             mcp: {
-              codegent: {
+              rvmp: {
                 type: "local",
                 command: [mcp.command, ...mcp.args],
                 enabled: true,
@@ -170,7 +170,7 @@ function launchFor(
     }
     case "amp": // CLI overlay has highest precedence and needs no trust prompt
       return {
-        cmd: ["amp", "--mcp-config", JSON.stringify({ codegent: mcp })],
+        cmd: ["amp", "--mcp-config", JSON.stringify({ rvmp: mcp })],
         env,
       };
     case "goose": // Goose accepts a one-session stdio extension command

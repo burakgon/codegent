@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import type { Card, MarkState } from "@codegent/protocol";
+import type { Card, MarkState } from "@rvmp/protocol";
 import { api } from "../api";
 import { formatElapsed, noticeCopy, type BoardColumn, type CardNoticeKind } from "../projection";
 

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { CardAgent } from "@codegent/protocol";
-import type { Card, Project } from "@codegent/protocol";
+import { CardAgent } from "@rvmp/protocol";
+import type { Card, Project } from "@rvmp/protocol";
 import { api } from "../api";
 
 // §8 add-project sheet: daemon-side path autocomplete (the browser may be

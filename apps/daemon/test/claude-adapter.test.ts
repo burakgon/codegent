@@ -2,7 +2,7 @@ import { test, expect, afterAll } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Attempt, Card, Dispatch, Project, SessionMeta } from "@codegent/protocol";
+import type { Attempt, Card, Dispatch, Project, SessionMeta } from "@rvmp/protocol";
 import type { OpenSessionOpts } from "../src/pty/manager";
 import { ClaudeAdapter, buildTaskPrompt, normalizeClaudeHook } from "../src/agents/claude";
 import { injectTaskPrompt } from "../src/agents/common";
@@ -187,7 +187,7 @@ test("spawn writes the six-event settings.json — recorded shape, no Notificati
 
   // Hook command: session identity baked into the command string itself
   // (survives claude's env filtering), forwarder = T6's hook.sh + agent arg.
-  const wantCmd = `CODEGENT_SESSION_ID='d-123' '${join(dataDir, "agents", "hook.sh")}' claude`;
+  const wantCmd = `RVMP_SESSION_ID='d-123' '${join(dataDir, "agents", "hook.sh")}' claude`;
   for (const [event, entries] of Object.entries(hooks)) {
     expect(entries).toHaveLength(1);
     const entry = entries[0]!;
@@ -214,14 +214,14 @@ test("spawn writes mcp.json wiring the sidecar with the dispatch envelope", asyn
   expect(existsSync(entry)).toBe(true); // the args target must actually exist
   expect(mcp).toEqual({
     mcpServers: {
-      codegent: {
+      rvmp: {
         command: "bun",
         args: [entry],
         env: {
-          CODEGENT_HOOK_PORT: String(HOOK_PORT),
-          CODEGENT_HOOK_TOKEN: HOOK_TOKEN,
-          CODEGENT_CARD_ID: "7",
-          CODEGENT_DISPATCH_ID: "d-123",
+          RVMP_HOOK_PORT: String(HOOK_PORT),
+          RVMP_HOOK_TOKEN: HOOK_TOKEN,
+          RVMP_CARD_ID: "7",
+          RVMP_DISPATCH_ID: "d-123",
         },
       },
     },
@@ -235,7 +235,7 @@ test("spawn records the process group before prompt readiness work completes", a
   const settingsDir = join(dataDir, "agents", earlyDispatch.id);
 
   const spawning = makeAdapter(ptys).spawn(ctx({ dispatch: earlyDispatch }));
-  const markerBeforeReadiness = existsSync(join(settingsDir, ".codegent-process-group.json"));
+  const markerBeforeReadiness = existsSync(join(settingsDir, ".rvmp-process-group.json"));
   const writesBeforeReadiness = [...ptys.writes];
   await spawning;
 
@@ -286,7 +286,7 @@ test("spawn argv: no --resume without a resumeSessionId (null included)", async 
   expect(ptys.opened[0]!.cmd).not.toContain("--resume");
 });
 
-test("spawn opens an agent-kind PTY in the worktree with scrubbed env + CODEGENT_*", async () => {
+test("spawn opens an agent-kind PTY in the worktree with scrubbed env + RVMP_*", async () => {
   process.env.CLAUDE_PROBE = "leak"; // simulates running the daemon inside a CC session
   try {
     const ptys = new FakePtys();
@@ -299,9 +299,9 @@ test("spawn opens an agent-kind PTY in the worktree with scrubbed env + CODEGENT
     expect(o.attemptId).toBe(3);
     expect(o.title).toBe("Fix the login bug");
     const env = o.env!;
-    expect(env.CODEGENT_SESSION_ID).toBe("d-123");
-    expect(env.CODEGENT_HOOK_PORT).toBe(String(HOOK_PORT));
-    expect(env.CODEGENT_HOOK_TOKEN).toBe(HOOK_TOKEN);
+    expect(env.RVMP_SESSION_ID).toBe("d-123");
+    expect(env.RVMP_HOOK_PORT).toBe(String(HOOK_PORT));
+    expect(env.RVMP_HOOK_TOKEN).toBe(HOOK_TOKEN);
     expect(env.TERM).toBe("xterm-256color");
     expect(Object.keys(env).filter((k) => k.startsWith("CLAUDE"))).toEqual([]);
     expect(res.sessionMeta).toEqual(ptys.metas[0]!);

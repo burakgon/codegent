@@ -1,6 +1,6 @@
 <div align="center">
 
-# <img src="apps/web/public/favicon.svg" width="28" valign="middle" alt=""> codegent
+# <img src="apps/web/public/favicon.svg" width="28" valign="middle" alt=""> rvmp
 
 **Your coding agents, on a board. Access from anywhere.**
 
@@ -8,12 +8,12 @@ A self-hosted, browser-based orchestrator for Claude Code, Codex, Gemini CLI and
 real terminals, a kanban board that routes attention, and a review flow with real diffs.
 Open it from any device. No accounts. No telemetry.
 
-[![ci](https://github.com/burakgon/codegent/actions/workflows/ci.yml/badge.svg)](https://github.com/burakgon/codegent/actions/workflows/ci.yml)
-[![release](https://img.shields.io/github/v/release/burakgon/codegent)](https://github.com/burakgon/codegent/releases)
+[![ci](https://github.com/burakgon/rvmp/actions/workflows/ci.yml/badge.svg)](https://github.com/burakgon/rvmp/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/burakgon/rvmp)](https://github.com/burakgon/rvmp/releases)
 [![license](https://img.shields.io/badge/license-AGPL--3.0-8b7cf6)](LICENSE)
 [![site](https://img.shields.io/badge/site-codegent.io-8b7cf6)](https://codegent.io)
 
-<img src="docs/assets/demo.gif" width="830" alt="codegent demo: type a card, a real agent picks it up in a real terminal, review the diff, queue a line comment, send it back to the agent, merge">
+<img src="docs/assets/demo.gif" width="830" alt="rvmp demo: type a card, a real agent picks it up in a real terminal, review the diff, queue a line comment, send it back to the agent, merge">
 
 </div>
 
@@ -28,9 +28,9 @@ Add a project, drop a task card, watch an agent pick it up in a real terminal,
 answer its questions **in that terminal**, review the diff, merge. macOS + Linux
 (WSL: same script).
 
-## Why codegent
+## Why rvmp
 
-Every agent vendor ships a UI for *their* agent. codegent is the opposite:
+Every agent vendor ships a UI for *their* agent. rvmp is the opposite:
 **every agent, one board, your hardware, your subscriptions** — a self-hosted
 web app, so the same board follows you from desk to laptop to phone.
 
@@ -48,7 +48,7 @@ web app, so the same board follows you from desk to laptop to phone.
 
 ## The part nobody else does: content-free agent detection
 
-codegent knows an agent is **working / stuck / waiting for you** without ever
+rvmp knows an agent is **working / stuck / waiting for you** without ever
 reading your terminal's content out of the terminal. State comes from
 deterministic signals only — process-tree identity, OSC title/progress codes,
 screen-region manifests, and the agent's own done-declaration over MCP:
@@ -66,7 +66,7 @@ So the board can tell you *"waiting for input · 4m"* — and clicking always la
 you in the terminal where the actual question lives. Surfaces show state and
 elapsed time, never scraped text. That's a principle, not a feature flag.
 
-<img src="docs/assets/terminal.png" width="830" alt="a real Claude Code TUI running in a codegent PTY">
+<img src="docs/assets/terminal.png" width="830" alt="a real Claude Code TUI running in a rvmp PTY">
 
 ## Agents
 
@@ -80,7 +80,7 @@ elapsed time, never scraped text. That's a principle, not a feature flag.
 
 ## How it compares
 
-|  | codegent | Vibe Kanban | Conductor / Orca | tmux + discipline |
+|  | rvmp | Vibe Kanban | Conductor / Orca | tmux + discipline |
 |---|---|---|---|---|
 | Browser UI — use from any device | ✔ | ✔ | ✘ (native app) | ✘ |
 | Any agent CLI | ✔ universal tier | partial | single-vendor focus | ✔ (by hand) |
@@ -90,7 +90,7 @@ elapsed time, never scraped text. That's a principle, not a feature flag.
 | License | AGPL-3.0 | Apache-2.0 | proprietary | — |
 
 *(Honest table: Vibe Kanban pioneered the kanban framing; Orca's terminal UX is
-excellent. codegent exists for the combination: any agent + real terminals +
+excellent. rvmp exists for the combination: any agent + real terminals +
 review flow, reachable from any browser.)*
 
 ## Access from anywhere
@@ -107,10 +107,10 @@ review flow, reachable from any browser.)*
 ## CLI
 
 ```
-codegent                  start + open the board
-codegent task add "…"     queue a card from your shell
-codegent doctor           git, agents, port, service checks
-codegent service enable   keep it running (launchd / systemd --user)
+rvmp                  start + open the board
+rvmp task add "…"     queue a card from your shell
+rvmp doctor           git, agents, port, service checks
+rvmp service enable   keep it running (launchd / systemd --user)
 ```
 
 ## Roadmap
@@ -125,6 +125,6 @@ codegent service enable   keep it running (launchd / systemd --user)
 See [CONTRIBUTING.md](CONTRIBUTING.md); PRs accept the [CLA](CLA.md).
 Built with [Bun](https://bun.sh), [ghostty-web](https://github.com/coder/ghostty-web), and TypeScript.
 
-If codegent is useful to you, **a star genuinely helps** other people find it. ★
+If rvmp is useful to you, **a star genuinely helps** other people find it. ★
 
 <sub>AGPL-3.0 · self-hosted · terminal content never leaves the terminal</sub>

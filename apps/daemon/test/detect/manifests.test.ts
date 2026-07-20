@@ -18,7 +18,7 @@ const grid = (overrides: Partial<ScreenGrid> = {}): ScreenGrid => ({
 });
 
 function withOverrideDir(run: (overrideDir: string) => void): void {
-  const root = mkdtempSync(join(tmpdir(), "codegent-manifests-"));
+  const root = mkdtempSync(join(tmpdir(), "rvmp-manifests-"));
   const overrideDir = join(root, "agent-detection");
   mkdirSync(overrideDir);
   try {
@@ -29,7 +29,7 @@ function withOverrideDir(run: (overrideDir: string) => void): void {
 }
 
 function bundled(agent: string): Manifest {
-  const root = mkdtempSync(join(tmpdir(), "codegent-manifests-bundled-"));
+  const root = mkdtempSync(join(tmpdir(), "rvmp-manifests-bundled-"));
   const overrideDir = join(root, "agent-detection");
   mkdirSync(overrideDir);
   try {
@@ -98,19 +98,19 @@ describe("bundled agent detection manifests", () => {
           "   more)",
           "   Restart without --safe-mode to re-enable",
           "",
-          "❯ Use the Bash tool to run exactly: touch /tmp/codegent-claude-fix.xSxtNX/permission-proof.txt",
+          "❯ Use the Bash tool to run exactly: touch /tmp/rvmp-claude-fix.xSxtNX/permission-proof.txt",
           "",
-          "⏺ Bash(touch /tmp/codegent-claude-fix.xSxtNX/permission-proof.txt)",
+          "⏺ Bash(touch /tmp/rvmp-claude-fix.xSxtNX/permission-proof.txt)",
           "",
           "─".repeat(100),
           " Bash command",
           "",
-          "   touch /tmp/codegent-claude-fix.xSxtNX/permission-proof.txt",
+          "   touch /tmp/rvmp-claude-fix.xSxtNX/permission-proof.txt",
           "   Create permission-proof.txt file",
           "",
           " Do you want to proceed?",
           " ❯ 1. Yes",
-          "   2. Yes, and always allow access to codegent-claude-fix.xSxtNX/ from this project",
+          "   2. Yes, and always allow access to rvmp-claude-fix.xSxtNX/ from this project",
           "   3. No",
           "",
           " Esc to cancel · Tab to amend · ctrl+e to explain",

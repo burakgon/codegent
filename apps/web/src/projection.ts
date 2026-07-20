@@ -1,4 +1,4 @@
-import type { Card, DomainEvent, SessionMeta } from "@codegent/protocol";
+import type { Card, DomainEvent, SessionMeta } from "@rvmp/protocol";
 
 export type BoardColumn = "queue" | "running" | "waiting" | "review" | "done";
 export type CardNoticeKind = Extract<DomainEvent, { t: "notice" }>["kind"];

@@ -1,4 +1,4 @@
-import type { DomainEvent } from "@codegent/protocol";
+import type { DomainEvent } from "@rvmp/protocol";
 
 type Cb = (e: DomainEvent) => void;
 

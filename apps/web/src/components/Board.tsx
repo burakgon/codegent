@@ -1,6 +1,6 @@
 import React, { useContext, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Card as CardT, Project, SessionMeta } from "@codegent/protocol";
+import type { Card as CardT, Project, SessionMeta } from "@rvmp/protocol";
 import { api } from "../api";
 import { cardRoutesToDiff, cardRoutesToTerminal, columnOf, interruptedMessage, reviewQueueOrder, terminalSessionForCard, type BoardColumn } from "../projection";
 import { AppCtx } from "./Shell";

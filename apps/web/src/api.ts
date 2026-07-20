@@ -1,4 +1,4 @@
-import { encodeEnvelope, decodeEnvelope, type DomainEvent } from "@codegent/protocol";
+import { encodeEnvelope, decodeEnvelope, type DomainEvent } from "@rvmp/protocol";
 import { callCallbacks, nextDelay, Resubscriber } from "./wsCore";
 
 // Chunked, not `String.fromCharCode(...b)`: the daemon's first `term` frame
@@ -19,7 +19,7 @@ export const b64ToBytes = (s: string) => Uint8Array.from(atob(s), c => c.charCod
 export const baseUrl = "";
 export const token = () => (typeof localStorage !== "undefined" ? localStorage.getItem("cgToken") ?? "" : "");
 
-const H = () => ({ "x-codegent-token": token(), "content-type": "application/json" });
+const H = () => ({ "x-rvmp-token": token(), "content-type": "application/json" });
 
 // A failed response must throw, never silently no-op: the daemon reports
 // errors as { error } json — surface that text, else "<status> <statusText>".

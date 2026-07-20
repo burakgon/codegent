@@ -3,7 +3,7 @@ import { cpSync, mkdirSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 // Build the distributable layout for the CURRENT platform (spec §14):
-//   dist/pkg/<platform-arch>/bin/codegent      (compiled daemon+CLI)
+//   dist/pkg/<platform-arch>/bin/rvmp      (compiled daemon+CLI)
 //   dist/pkg/<platform-arch>/share/web/**      (built UI, found via resolveWebDist)
 // Usage: bun scripts/package.ts [--skip-web] [--target <plat-arch>|all]
 // Targets map to bun's cross-compile triples; `all` builds every release
@@ -43,12 +43,12 @@ for (const target of argTarget) {
   await run(root, [
     "bun", "build", "--compile", `--target=${TARGETS[target]}`,
     join(root, "apps", "daemon", "src", "cli.ts"),
-    "--outfile", join(out, "bin", "codegent"),
+    "--outfile", join(out, "bin", "rvmp"),
   ]);
   cpSync(webDist, join(out, "share", "web"), { recursive: true });
   // Release tarball: extracts to bin/ + share/ (install.sh expects this layout).
   mkdirSync(join(root, "dist", "release"), { recursive: true });
-  const tarball = join(root, "dist", "release", `codegent-${target}.tar.gz`);
+  const tarball = join(root, "dist", "release", `rvmp-${target}.tar.gz`);
   await run(out, ["tar", "-czf", tarball, "bin", "share"]);
   console.log(`packaged → ${target}  (${tarball})`);
 }

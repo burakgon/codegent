@@ -7,7 +7,7 @@ import { events as bus } from "../src/events";
 import { appendTimeline } from "../src/store/timeline";
 import { createAttempt, createDispatch } from "../src/store/attempts";
 import { getCard, updateCard } from "../src/store/cards";
-import { decodeEnvelope, encodeEnvelope } from "@codegent/protocol";
+import { decodeEnvelope, encodeEnvelope } from "@rvmp/protocol";
 
 const db = openDb(":memory:");
 const dataDir = `/tmp/cg-http-${crypto.randomUUID()}`;
@@ -17,7 +17,7 @@ const engine = new Engine({ db, ptys, adapters: { claude: null, codex: null }, e
 const cfg = { port: 4790 + Math.floor(Math.random() * 100), dataDir, token: "testtoken" };
 const srv = startServer(cfg, db, ptys, engine);
 const base = `${srv.url}api`;
-const T = { headers: { "x-codegent-token": "testtoken", "content-type": "application/json" } };
+const T = { headers: { "x-rvmp-token": "testtoken", "content-type": "application/json" } };
 
 afterAll(() => srv.stop());
 
@@ -342,7 +342,7 @@ test("diff + reviewed-files: guards and viewed-marks roundtrip", async () => {
 });
 
 test("P4: project settings PATCH is strict; path-complete is home-anchored; clone + git-init flows", async () => {
-  const H = { "x-codegent-token": "testtoken", "content-type": "application/json" };
+  const H = { "x-rvmp-token": "testtoken", "content-type": "application/json" };
   const { mkdtempSync, writeFileSync, mkdirSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");

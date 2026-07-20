@@ -1,5 +1,5 @@
 name: Feature request
-description: Something codegent should do
+description: Something rvmp should do
 labels: [enhancement]
 body:
   - type: textarea

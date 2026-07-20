@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// codegent-cli launcher (spec §14 front door): `npx codegent-cli` must work
+// rvmp-cli launcher (spec §14 front door): `npx rvmp-cli` must work
 // with zero commitment. Resolution order:
-//   1. CODEGENT_BIN override
-//   2. the installed binary at ~/.codegent/bin/codegent
+//   1. RVMP_BIN override
+//   2. the installed binary at ~/.rvmp/bin/rvmp
 //   3. a local `bun` + monorepo checkout (developer convenience)
 //   4. print the curl installer one-liner (release binaries carry the daemon;
 //      this shim stays tiny and never bundles a runtime).
@@ -14,8 +14,8 @@ const os = require("node:os");
 
 const args = process.argv.slice(2);
 const candidates = [];
-if (process.env.CODEGENT_BIN) candidates.push(process.env.CODEGENT_BIN);
-candidates.push(join(os.homedir(), ".codegent", "bin", "codegent"));
+if (process.env.RVMP_BIN) candidates.push(process.env.RVMP_BIN);
+candidates.push(join(os.homedir(), ".rvmp", "bin", "rvmp"));
 
 for (const bin of candidates) {
   if (bin && existsSync(bin)) {
@@ -33,8 +33,8 @@ if (bunOk && existsSync(cliTs)) {
 }
 
 console.error(
-  "codegent-cli is a launcher: it runs the codegent binary, which is not installed yet.\n" +
+  "rvmp-cli is a launcher: it runs the rvmp binary, which is not installed yet.\n" +
   "Install it with:\n\n  curl -fsSL https://codegent.io/install | sh\n\n" +
-  "then re-run `codegent` (or set CODEGENT_BIN to an existing binary)."
+  "then re-run `rvmp` (or set RVMP_BIN to an existing binary)."
 );
 process.exit(1);

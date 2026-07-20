@@ -1,4 +1,4 @@
-import type { Card, InputKind, MarkState } from "@codegent/protocol";
+import type { Card, InputKind, MarkState } from "@rvmp/protocol";
 
 /**
  * Pure card state machine — the single authority on legal card transitions

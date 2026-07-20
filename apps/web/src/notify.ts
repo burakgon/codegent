@@ -1,8 +1,8 @@
-import type { Card, DomainEvent } from "@codegent/protocol";
+import type { Card, DomainEvent } from "@rvmp/protocol";
 
 // Lightweight in-tab notifications (local-only pivot: heavy Web Push with
 // VAPID/service-worker was CUT; this fires from the live ws feed while the
-// codegent tab is open). Content-minimal by principle 1: card TITLE (the
+// rvmp tab is open). Content-minimal by principle 1: card TITLE (the
 // user's own data) + a fixed state label — never terminal content.
 
 export type Attention = "waiting" | "error" | "review-ready";

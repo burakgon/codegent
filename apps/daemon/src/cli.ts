@@ -6,7 +6,7 @@ import pkg from "../package.json";
 import { AGENT_REGISTRY } from "./detect/agent-registry";
 import { disableService, enableService, serviceStatus, type ServiceDeps } from "./service";
 
-// The `codegent` command (spec §14, local-only): start (+open), doctor,
+// The `rvmp` command (spec §14, local-only): start (+open), doctor,
 // task add, service enable|disable|status, update, --version. The daemon
 // itself is startDaemon() — imported lazily so light subcommands don't pay
 // the boot-graph cost.
@@ -36,24 +36,24 @@ export function parseCli(argv: string[]): Parsed {
   if (head === "service") {
     const action = rest[0];
     if (action === "enable" || action === "disable" || action === "status") return { cmd: "service", action };
-    return { cmd: "error", message: "usage: codegent service enable|disable|status" };
+    return { cmd: "error", message: "usage: rvmp service enable|disable|status" };
   }
   if (head === "task") {
-    if (rest[0] !== "add" || !rest[1]) return { cmd: "error", message: 'usage: codegent task add "<title>" [--project <path>]' };
+    if (rest[0] !== "add" || !rest[1]) return { cmd: "error", message: 'usage: rvmp task add "<title>" [--project <path>]' };
     const pi = rest.indexOf("--project");
     return { cmd: "task-add", title: rest[1], project: pi >= 0 ? rest[pi + 1] ?? null : null };
   }
-  return { cmd: "error", message: `unknown command '${head}' — try: codegent help` };
+  return { cmd: "error", message: `unknown command '${head}' — try: rvmp help` };
 }
 
-export const HELP = `codegent ${pkg.version} — local coding-agent orchestrator
+export const HELP = `rvmp ${pkg.version} — local coding-agent orchestrator
 
-  codegent [start]            start the daemon and open the board (--no-open)
-  codegent doctor             environment checks (git, agents, port, service)
-  codegent task add "<t>"     add a card to the running daemon [--project <path>]
-  codegent service <action>   enable | disable | status (launchd / systemd --user)
-  codegent update             how to update
-  codegent --version
+  rvmp [start]            start the daemon and open the board (--no-open)
+  rvmp doctor             environment checks (git, agents, port, service)
+  rvmp task add "<t>"     add a card to the running daemon [--project <path>]
+  rvmp service <action>   enable | disable | status (launchd / systemd --user)
+  rvmp update             how to update
+  rvmp --version
 `;
 
 // ---------------------------------------------------------------------------
@@ -93,7 +93,7 @@ export async function doctorReport(d?: DoctorDeps): Promise<DoctorRow[]> {
   }
   rows.push({ name: "port", ok: port !== null, detail: port !== null ? `${port} free` : `none free in ${PORT_BASE}-${PORT_MAX - 1} (daemon already running?)` });
 
-  const dataDir = process.env.CODEGENT_DATA_DIR ?? join(home, ".codegent");
+  const dataDir = process.env.RVMP_DATA_DIR ?? join(home, ".rvmp");
   let writable = true;
   try {
     if (existsSync(dataDir)) accessSync(dataDir, constants.W_OK);
@@ -111,7 +111,7 @@ export async function doctorReport(d?: DoctorDeps): Promise<DoctorRow[]> {
 // ---------------------------------------------------------------------------
 
 export async function findDaemon(opts?: { dataDir?: string; ports?: number[]; fetchFn?: typeof fetch }): Promise<{ base: string; token: string } | null> {
-  const dataDir = opts?.dataDir ?? process.env.CODEGENT_DATA_DIR ?? join(homedir(), ".codegent");
+  const dataDir = opts?.dataDir ?? process.env.RVMP_DATA_DIR ?? join(homedir(), ".rvmp");
   const tokenPath = join(dataDir, "token");
   if (!existsSync(tokenPath)) return null;
   const token = readFileSync(tokenPath, "utf8").trim();
@@ -126,7 +126,7 @@ export async function findDaemon(opts?: { dataDir?: string; ports?: number[]; fe
     if (!Number.isInteger(port) || port <= 0) continue;
     try {
       const res = await f(`http://127.0.0.1:${port}/api/projects`, {
-        headers: { "x-codegent-token": token },
+        headers: { "x-rvmp-token": token },
         signal: AbortSignal.timeout(400),
       });
       if (res.ok) return { base: `http://127.0.0.1:${port}`, token };
@@ -141,8 +141,8 @@ export async function taskAdd(
   opts?: Parameters<typeof findDaemon>[0],
 ): Promise<{ ok: true; message: string } | { ok: false; message: string }> {
   const daemon = await findDaemon(opts);
-  if (!daemon) return { ok: false, message: "no running codegent daemon found — start one with `codegent`" };
-  const H = { "x-codegent-token": daemon.token, "content-type": "application/json" };
+  if (!daemon) return { ok: false, message: "no running rvmp daemon found — start one with `rvmp`" };
+  const H = { "x-rvmp-token": daemon.token, "content-type": "application/json" };
   const projects = (await (await fetch(`${daemon.base}/api/projects`, { headers: H })).json()) as Array<{ id: string; name: string; path: string }>;
   if (projects.length === 0) return { ok: false, message: "no projects yet — add one in the browser first" };
   const target = projectPath
@@ -199,14 +199,14 @@ export async function main(argv: string[]): Promise<number> {
       return rows.every((r) => r.ok) ? 0 : 1;
     }
     case "update":
-      console.log("update codegent:\n  npm i -g codegent-cli@latest\n  # or re-run: curl -fsSL https://codegent.io/install | sh");
+      console.log("update rvmp:\n  npm i -g rvmp-cli@latest\n  # or re-run: curl -fsSL https://codegent.io/install | sh");
       return 0;
     case "service": {
       const binPath = process.execPath;
-      if (parsed.action === "enable" && !/codegent(\.exe)?$/.test(binPath)) {
+      if (parsed.action === "enable" && !/rvmp(\.exe)?$/.test(binPath)) {
         // dev mode: execPath is bun itself — a unit running bare `bun start`
         // would KeepAlive-crash-loop (review A-Min). Services need the binary.
-        console.error("service enable requires the installed codegent binary (curl installer) — not a source run");
+        console.error("service enable requires the installed rvmp binary (curl installer) — not a source run");
         return 1;
       }
       const result = parsed.action === "enable" ? await enableService(binPath)
@@ -226,7 +226,7 @@ export async function main(argv: string[]): Promise<number> {
       // against the same db would mark its live dispatches interrupted (A-C1).
       const existing = await findDaemon();
       if (existing) {
-        console.log(`codegent daemon already running → ${existing.base}/#t=${existing.token}`);
+        console.log(`rvmp daemon already running → ${existing.base}/#t=${existing.token}`);
         if (parsed.open) openBrowser(`${existing.base}/#t=${existing.token}`);
         return 0;
       }

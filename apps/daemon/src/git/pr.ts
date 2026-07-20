@@ -1,4 +1,4 @@
-import type { CiStatus, PrState } from "@codegent/protocol";
+import type { CiStatus, PrState } from "@rvmp/protocol";
 
 // Pull-request tracking via the `gh` CLI (spec §7.5). Merges are RECORDED
 // FACTS, never git-ancestry inference (VK-proven: ancestry fails under

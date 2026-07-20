@@ -7,7 +7,7 @@ import { MIGRATIONS, openDb } from "../src/store/db";
 import { listCards } from "../src/store/cards";
 
 const V2_MIGRATION_COUNT = 8; // MIGRATIONS[0..7] are the pre-Part-3 schema
-const tmp = mkdtempSync(join(tmpdir(), "codegent-store-v03-"));
+const tmp = mkdtempSync(join(tmpdir(), "rvmp-store-v03-"));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
 function seedV7Db(path: string): void {

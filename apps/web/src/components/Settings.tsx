@@ -1,6 +1,6 @@
 import React, { useContext, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Project, Worktree } from "@codegent/protocol";
+import type { Project, Worktree } from "@rvmp/protocol";
 import { api, token } from "../api";
 import { formatElapsed } from "../projection";
 import { AppCtx } from "../appCtx";
@@ -82,7 +82,7 @@ export function SettingsView({ project }: { project: Project }) {
         <div style={h}>Daemon</div>
         <div style={{ fontSize: 12, color: "var(--text-2)" }}>
           Service: <span data-service-status style={{ color: service.data?.status === "enabled" ? "var(--green)" : "var(--meta)" }}>{service.data?.status ?? "…"}</span>
-          <span style={{ marginLeft: 8, fontSize: 11, color: "var(--meta)" }}>manage with `codegent service enable|disable`</span>
+          <span style={{ marginLeft: 8, fontSize: 11, color: "var(--meta)" }}>manage with `rvmp service enable|disable`</span>
         </div>
       </div>
 
@@ -143,7 +143,7 @@ export function SettingsView({ project }: { project: Project }) {
         <div style={{ marginTop: 8, fontSize: 11, color: "var(--meta)", lineHeight: 1.5 }}>
           Access from anywhere: point your own tunnel (Tailscale, cloudflared, or ssh -L)
           at this URL and the board works from any device — the token in the fragment is
-          the credential. By default codegent binds to localhost; never expose the port
+          the credential. By default rvmp binds to localhost; never expose the port
           on 0.0.0.0 directly. See docs/expose-safely.md.
         </div>
       </div>

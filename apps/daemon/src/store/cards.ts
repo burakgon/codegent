@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import type { Card } from "@codegent/protocol";
+import type { Card } from "@rvmp/protocol";
 
 const rowToCard = (r: any): Card => ({
   id: r.id, projectId: r.project_id, title: r.title, body: r.body,

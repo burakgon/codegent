@@ -15,7 +15,7 @@ import {
 
 const V1_MIGRATION_COUNT = 4; // MIGRATIONS[0..3] are the frozen v0.1 schema
 
-const tmp = mkdtempSync(join(tmpdir(), "codegent-store-v02-"));
+const tmp = mkdtempSync(join(tmpdir(), "rvmp-store-v02-"));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
 /** Build a database exactly as a v0.1 daemon left it: schema migrations 0..3

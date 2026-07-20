@@ -13,9 +13,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scrubAgentEnv } from "../../src/pty/session";
 
-const LIVE = process.env.CODEGENT_CONTRACT_LIVE === "1";
+const LIVE = process.env.RVMP_CONTRACT_LIVE === "1";
 const DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com";
-const DUMMY_API_KEY = "codegent-contract-presence-probe";
+const DUMMY_API_KEY = "rvmp-contract-presence-probe";
 const AUTH_PROBE_TIMEOUT_MS = 10_000;
 const COMMAND_TIMEOUT_MS = 120_000;
 
@@ -103,7 +103,7 @@ async function getClaudePreflight(): Promise<ClaudePreflight> {
     return {
       kind: "failure",
       binary: null,
-      reason: "CODEGENT_CONTRACT_LIVE=1 but claude was not found on PATH",
+      reason: "RVMP_CONTRACT_LIVE=1 but claude was not found on PATH",
     };
   }
   if (process.env.ANTHROPIC_API_KEY?.trim()) return { kind: "ready", binary };
@@ -203,7 +203,7 @@ function createHarness(name: string): Harness {
   // macOS exposes tmpdir() below /var, while the Claude sandbox canonicalizes
   // it to /private/var. Spawn with the canonical spelling or an in-cwd write
   // can be rejected as outside the (textually different) allowed directory.
-  const root = realpathSync(mkdtempSync(join(tmpdir(), `codegent-cc-${name}-`)));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), `rvmp-cc-${name}-`)));
   cleanups.push(root);
   const project = join(root, "project");
   mkdirSync(project, { mode: 0o700 });
@@ -404,7 +404,7 @@ describe.skipIf(!CAN_RUN).serial("Claude Code live hook contract", () => {
       harness,
       "--permission-mode", "auto",
       "--print",
-      "Use the Bash tool exactly once to run exactly: printf CODEGENT_AUTO_BASH_OK. " +
+      "Use the Bash tool exactly once to run exactly: printf RVMP_AUTO_BASH_OK. " +
         "Do not use any other tool. Then reply exactly AUTO_OK.",
     );
     const result = await runCommand(cmd, harness.project, scrubAgentEnv(process.env));
@@ -419,8 +419,8 @@ describe.skipIf(!CAN_RUN).serial("Claude Code live hook contract", () => {
     const toolInput = toolEvents[0]?.tool_input as Record<string, unknown> | undefined;
     const toolResponse = toolEvents[1]?.tool_response as Record<string, unknown> | undefined;
     if (
-      toolInput?.command !== "printf CODEGENT_AUTO_BASH_OK" ||
-      toolResponse?.stdout !== "CODEGENT_AUTO_BASH_OK"
+      toolInput?.command !== "printf RVMP_AUTO_BASH_OK" ||
+      toolResponse?.stdout !== "RVMP_AUTO_BASH_OK"
     ) {
       throw new Error(
         `[cc-contract:x1-auto-bash] Bash command/output changed: ` +
@@ -433,7 +433,7 @@ describe.skipIf(!CAN_RUN).serial("Claude Code live hook contract", () => {
 
   test("synthetic API 400 emits StopFailure only and ANTHROPIC env preserves resume (x2)", async () => {
     const harness = createHarness("failure-resume");
-    const syntheticErrorMarker = `CODEGENT_CC_SYNTHETIC_400_${crypto.randomUUID()}`;
+    const syntheticErrorMarker = `RVMP_CC_SYNTHETIC_400_${crypto.randomUUID()}`;
     let requestCount = 0;
     const server = Bun.serve({
       hostname: "127.0.0.1",

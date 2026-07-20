@@ -33,7 +33,7 @@ interface ProcessGroupRecord {
   members: Array<{ pid: number; started: string }>;
 }
 
-const PGID_MARKER = ".codegent-process-group.json";
+const PGID_MARKER = ".rvmp-process-group.json";
 
 const markerPath = (settingsDir: string): string => join(settingsDir, PGID_MARKER);
 

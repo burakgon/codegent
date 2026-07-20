@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import type { SessionMeta } from "@codegent/protocol";
+import type { SessionMeta } from "@rvmp/protocol";
 import { PtySession } from "./session";
 import { insertSession, setSessionLive, listSessions } from "../store/sessions";
 import { events } from "../events";

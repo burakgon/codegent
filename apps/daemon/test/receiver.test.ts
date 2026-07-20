@@ -13,7 +13,7 @@ const dataDir = mkdtempSync(join(tmpdir(), "cg-recv-"));
 const db = openDb(":memory:");
 const rx = startHookReceiver({ dataDir, db });
 const url = (p: string) => `http://127.0.0.1:${rx.port}${p}`;
-const auth = { "x-codegent-hook-token": rx.token };
+const auth = { "x-rvmp-hook-token": rx.token };
 
 afterAll(() => {
   rx.stop();
@@ -38,7 +38,7 @@ test("rejects missing and bad tokens with 401", async () => {
   const missing = await fetch(url("/hook/claude"), { method: "POST", body: "{}" });
   expect(missing.status).toBe(401);
   const bad = await fetch(url("/hook/claude"), {
-    method: "POST", headers: { "x-codegent-hook-token": "wrong" }, body: "{}",
+    method: "POST", headers: { "x-rvmp-hook-token": "wrong" }, body: "{}",
   });
   expect(bad.status).toBe(401);
 });
@@ -54,7 +54,7 @@ test("accepts and forwards a valid hook; pane identity from the session header",
   const off = rx.onHook(h => got.push(h));
   const r = await fetch(url("/hook/claude"), {
     method: "POST",
-    headers: { ...auth, "x-codegent-session-id": "sess-77" },
+    headers: { ...auth, "x-rvmp-session-id": "sess-77" },
     body: JSON.stringify({ hook_event_name: "Stop", session_id: "native" }),
   });
   expect(r.status).toBe(200);
@@ -64,12 +64,12 @@ test("accepts and forwards a valid hook; pane identity from the session header",
   ]);
 });
 
-test("falls back to a CODEGENT_SESSION_ID body field when the header is absent", async () => {
+test("falls back to a RVMP_SESSION_ID body field when the header is absent", async () => {
   const got: HookDelivery[] = [];
   const off = rx.onHook(h => got.push(h));
   await fetch(url("/hook/codex"), {
     method: "POST", headers: auth,
-    body: JSON.stringify({ CODEGENT_SESSION_ID: "sess-body", hook_event_name: "Stop" }),
+    body: JSON.stringify({ RVMP_SESSION_ID: "sess-body", hook_event_name: "Stop" }),
   });
   off();
   expect(got.length).toBe(1);
@@ -105,7 +105,7 @@ test("handle() serves the same contract when invoked directly (no HTTP)", async 
   const got: HookDelivery[] = [];
   const off = rx.onHook(h => got.push(h));
   const r = await rx.handle(new Request(url("/hook/claude"), {
-    method: "POST", headers: { ...auth, "x-codegent-session-id": "direct" }, body: '{"k":1}',
+    method: "POST", headers: { ...auth, "x-rvmp-session-id": "direct" }, body: '{"k":1}',
   }));
   expect(r.status).toBe(200);
   off();
@@ -116,11 +116,11 @@ test("endpoint file: 0600 mode, sourceable values, atomic rewrite leaves no tmp 
   expect(rx.endpointFile).toBe(join(dataDir, "agents", "endpoint.env"));
   expect(statSync(rx.endpointFile).mode & 0o777).toBe(0o600);
   const text = readFileSync(rx.endpointFile, "utf8");
-  expect(text).toContain(`CODEGENT_HOOK_PORT=${rx.port}\n`);
-  expect(text).toContain(`CODEGENT_HOOK_TOKEN=${rx.token}\n`);
+  expect(text).toContain(`RVMP_HOOK_PORT=${rx.port}\n`);
+  expect(text).toContain(`RVMP_HOOK_TOKEN=${rx.token}\n`);
   // Rewrite as a restarted daemon would: fresh values, same mode, no *.tmp left.
   writeEndpointFile(dataDir, 65001, "tok-after-restart");
-  expect(readFileSync(rx.endpointFile, "utf8")).toContain("CODEGENT_HOOK_PORT=65001\n");
+  expect(readFileSync(rx.endpointFile, "utf8")).toContain("RVMP_HOOK_PORT=65001\n");
   expect(statSync(rx.endpointFile).mode & 0o777).toBe(0o600);
   expect(readdirSync(join(dataDir, "agents")).filter(f => f.endsWith(".tmp"))).toEqual([]);
   writeEndpointFile(dataDir, rx.port, rx.token); // restore for the script tests below
@@ -138,7 +138,7 @@ test("hook script: 0755, Orca curl budgets, posts stdin JSON against the live re
   const off = rx.onHook(h => got.push(h));
   const p = Bun.spawn({
     cmd: [script, "claude"],
-    env: { PATH: process.env.PATH!, CODEGENT_SESSION_ID: "sess-script" },
+    env: { PATH: process.env.PATH!, RVMP_SESSION_ID: "sess-script" },
     stdin: new TextEncoder().encode(JSON.stringify({ hook_event_name: "PermissionRequest" })),
     stdout: "ignore", stderr: "ignore",
   });
@@ -158,9 +158,9 @@ test("hook script: endpoint file beats stale spawn env (restart survival)", asyn
   const p = Bun.spawn({
     cmd: [script, "codex"],
     env: {
-      PATH: process.env.PATH!, CODEGENT_SESSION_ID: "sess-stale-env",
+      PATH: process.env.PATH!, RVMP_SESSION_ID: "sess-stale-env",
       // Stale env baked into a PTY that outlived a daemon restart:
-      CODEGENT_HOOK_PORT: "1", CODEGENT_HOOK_TOKEN: "dead-token",
+      RVMP_HOOK_PORT: "1", RVMP_HOOK_TOKEN: "dead-token",
     },
     stdin: new TextEncoder().encode('{"hook_event_name":"Stop"}'),
     stdout: "ignore", stderr: "ignore",
@@ -181,8 +181,8 @@ test("hook script: env fallback when the endpoint file is missing", async () => 
     const p = Bun.spawn({
       cmd: [script, "claude"],
       env: {
-        PATH: process.env.PATH!, CODEGENT_SESSION_ID: "sess-env-fallback",
-        CODEGENT_HOOK_PORT: String(rx.port), CODEGENT_HOOK_TOKEN: rx.token,
+        PATH: process.env.PATH!, RVMP_SESSION_ID: "sess-env-fallback",
+        RVMP_HOOK_PORT: String(rx.port), RVMP_HOOK_TOKEN: rx.token,
       },
       stdin: new TextEncoder().encode('{"hook_event_name":"Stop"}'),
       stdout: "ignore", stderr: "ignore",
@@ -204,7 +204,7 @@ test("hook script: fail-open — dead daemon still exits 0, within the curl budg
     const t0 = performance.now();
     const p = Bun.spawn({
       cmd: [script, "claude"],
-      env: { PATH: process.env.PATH!, CODEGENT_SESSION_ID: "s" },
+      env: { PATH: process.env.PATH!, RVMP_SESSION_ID: "s" },
       stdin: new TextEncoder().encode("{}"),
       stdout: "ignore", stderr: "ignore",
     });
@@ -221,7 +221,7 @@ test("hook script: missing endpoint config (no file, no env) still exits 0", asy
     const script = writeHookScript(bareDir); // no endpoint file was ever written here
     const p = Bun.spawn({
       cmd: [script, "claude"],
-      env: { PATH: process.env.PATH! }, // no CODEGENT_* at all
+      env: { PATH: process.env.PATH! }, // no RVMP_* at all
       stdin: new TextEncoder().encode("{}"),
       stdout: "ignore", stderr: "ignore",
     });

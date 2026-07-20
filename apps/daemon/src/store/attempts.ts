@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import type { Attempt, Dispatch } from "@codegent/protocol";
+import type { Attempt, Dispatch } from "@rvmp/protocol";
 
 /** Execution mode persisted per attempt at spawn (spec §9.1): resume/restart
  * re-pass the ORIGINAL flags. Structurally identical to the agent layer's

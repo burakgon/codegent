@@ -6,7 +6,7 @@ import { STARTUP_GRACE_MS, type DetectState } from "../src/detect/classifier";
 import { transition } from "../src/orchestrator/machine";
 import { UniversalAdapter, normalizeUniversalState } from "../src/agents/universal";
 import type { AdapterSignal } from "../src/agents/types";
-import type { Card, SessionMeta } from "@codegent/protocol";
+import type { Card, SessionMeta } from "@rvmp/protocol";
 import type { OpenSessionOpts } from "../src/pty/manager";
 
 const detected = (state: DetectState["state"]): DetectState => ({
@@ -252,18 +252,18 @@ test("UniversalAdapter spawns a bare Gemini PTY with isolated MCP config", async
   expect(Object.keys(result.latestDetectState?.() ?? {}).sort()).toEqual(["since", "state"]);
   expect(opened).not.toBeNull();
   expect(opened!.cmd).toEqual(["gemini"]);
-  expect(opened!.env?.CODEGENT_AGENT).toBe("gemini");
+  expect(opened!.env?.RVMP_AGENT).toBe("gemini");
   expect(signals).toEqual([{ s: "session-started", adapterSessionId: null }]);
   expect(writes.at(-1)).toBe("\r");
 
   const settingsPath = opened!.env?.GEMINI_CLI_SYSTEM_SETTINGS_PATH;
   expect(typeof settingsPath).toBe("string");
   const settings = JSON.parse(readFileSync(settingsPath!, "utf8"));
-  expect(settings.mcpServers.codegent).toMatchObject({
+  expect(settings.mcpServers.rvmp).toMatchObject({
     command: "bun",
     env: {
-      CODEGENT_CARD_ID: "1",
-      CODEGENT_DISPATCH_ID: "dispatch-1",
+      RVMP_CARD_ID: "1",
+      RVMP_DISPATCH_ID: "dispatch-1",
     },
     trust: true,
   });

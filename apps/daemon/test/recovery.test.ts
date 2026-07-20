@@ -3,7 +3,7 @@ import type { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Card, DomainEvent, Project, SessionMeta, Worktree } from "@codegent/protocol";
+import type { Card, DomainEvent, Project, SessionMeta, Worktree } from "@rvmp/protocol";
 import { openDb } from "../src/store/db";
 import { createProject } from "../src/store/projects";
 import { createCard, getCard, updateCard } from "../src/store/cards";
@@ -722,7 +722,7 @@ test("recovery routes: 404 unknown / 409 illegal, discard responds {undo:true}, 
   const w = await makeWorld();
   const cfg = { port: 4930 + Math.floor(Math.random() * 60), dataDir: mkTmp(), token: "t9" };
   const srv = startServer(cfg, w.db, w.ptys as any, w.engine);
-  const T = { headers: { "x-codegent-token": "t9", "content-type": "application/json" } };
+  const T = { headers: { "x-rvmp-token": "t9", "content-type": "application/json" } };
   try {
     expect((await fetch(`${srv.url}api/cards/99999/resume`, { ...T, method: "POST" })).status).toBe(404);
     const q = card(w, "queued one", { auto: false });

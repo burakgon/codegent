@@ -5,7 +5,7 @@ import type {
   InputKind,
   Project,
   SessionMeta,
-} from "@codegent/protocol";
+} from "@rvmp/protocol";
 import type { OpenSessionOpts } from "../pty/manager";
 import type { DetectStateName } from "../detect/classifier";
 

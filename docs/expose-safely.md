@@ -1,8 +1,8 @@
-# Exposing codegent safely
+# Exposing rvmp safely
 
-codegent is built to be **accessed from anywhere — through a tunnel you own**.
+rvmp is built to be **accessed from anywhere — through a tunnel you own**.
 By default the daemon binds `127.0.0.1` and every
-request needs the per-install token (`~/.codegent/token`, also in the URL
+request needs the per-install token (`~/.rvmp/token`, also in the URL
 fragment the CLI prints). There is no relay, no accounts, no remote service.
 
 Want to reach it from another device? Bring your own tunnel — pointed at the
@@ -34,5 +34,5 @@ Rules of thumb:
 - The token IS the credential — treat the full URL like a password.
 - **Never** bind the daemon to `0.0.0.0` or port-forward it raw: agents on
   your machine execute code; an exposed board is an exposed shell.
-- The always-on recipe: install codegent on the server itself
-  (`curl … | sh` + `codegent service enable`), then tunnel to it.
+- The always-on recipe: install rvmp on the server itself
+  (`curl … | sh` + `rvmp service enable`), then tunnel to it.

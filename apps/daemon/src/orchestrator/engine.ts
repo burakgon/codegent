@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { existsSync, readdirSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type { Attempt, Card, Dispatch, DomainEvent, InputKind, MarkState, Project, Worktree } from "@codegent/protocol";
+import type { Attempt, Card, Dispatch, DomainEvent, InputKind, MarkState, Project, Worktree } from "@rvmp/protocol";
 import {
   dispatchEffect,
   transition as machineTransition,
@@ -73,7 +73,7 @@ import {
  *   fields only — the worktree re-creates from the kept branch on next start).
  *
  * Session-key routing: hook + MCP identity is the SPAWN-TIME dispatch id
- * (T7 bakes CODEGENT_SESSION_ID=<dispatchId> into the hook command and the
+ * (T7 bakes RVMP_SESSION_ID=<dispatchId> into the hook command and the
  * sidecar env). A live-session send-back opens a NEW dispatch without
  * respawning, so `routes` aliases spawn-key → current live dispatch. The map
  * is in-memory only — which is exactly why boot reconciliation
@@ -1526,13 +1526,13 @@ export class Engine {
           sha = (await git(repo, "rev-parse", "HEAD")).trim();
           empty = true;
         } else {
-          await git(repo, "commit", "--no-verify", "-m", `${card.title} (codegent card ${card.id})`);
+          await git(repo, "commit", "--no-verify", "-m", `${card.title} (rvmp card ${card.id})`);
           sha = (await git(repo, "rev-parse", "HEAD")).trim();
         }
       } else if (mode === "merge") {
         try {
           await git(repo, "merge", "--no-ff", "--no-edit", "-m",
-            `${card.title} (codegent card ${card.id})`, wt.branch);
+            `${card.title} (rvmp card ${card.id})`, wt.branch);
         } catch {
           await git(repo, "merge", "--abort").catch(() => {});
           await git(repo, "reset", "--merge").catch(() => {});

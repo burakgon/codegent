@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { Card, SessionMeta } from "@codegent/protocol";
+import type { Card, SessionMeta } from "@rvmp/protocol";
 import { api } from "../api";
 import { railSessionEntries } from "../projection";
 

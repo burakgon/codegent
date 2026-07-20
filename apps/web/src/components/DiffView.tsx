@@ -1,6 +1,6 @@
 import React, { useContext, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Card, DiffFile, DiffPayload, DiffSummary, SessionMeta, Worktree } from "@codegent/protocol";
+import type { Card, DiffFile, DiffPayload, DiffSummary, SessionMeta, Worktree } from "@rvmp/protocol";
 import { api } from "../api";
 import { formatElapsed, reviewQueueOrder } from "../projection";
 import { AppCtx } from "../appCtx";

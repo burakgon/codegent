@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import type { Project, Worktree } from "@codegent/protocol";
+import type { Project, Worktree } from "@rvmp/protocol";
 import { join } from "node:path";
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 
@@ -16,11 +16,11 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
   return out;
 }
 
-/** Ensure `.codegent/` is listed in the repo's `.git/info/exclude` — never the user's .gitignore. */
+/** Ensure `.rvmp/` is listed in the repo's `.git/info/exclude` — never the user's .gitignore. */
 async function ensureExcluded(repoPath: string): Promise<void> {
   const gitDir = (await git(repoPath, "rev-parse", "--path-format=absolute", "--git-common-dir")).trim();
   const excl = join(gitDir, "info", "exclude");
-  const line = ".codegent/";
+  const line = ".rvmp/";
   const cur = existsSync(excl) ? readFileSync(excl, "utf8") : "";
   if (cur.split("\n").includes(line)) return;
   mkdirSync(join(gitDir, "info"), { recursive: true });
@@ -38,8 +38,8 @@ export async function createWorktree(
 ): Promise<Worktree> {
   const base = opts.base ?? project.baseBranch;
   const branch = opts.cardId != null ? `cg/${opts.cardId}-${slug(opts.slugSource)}` : `wt/${slug(opts.slugSource)}`;
-  const path = join(project.path, ".codegent", "worktrees", branch.replace(/\//g, "-"));
-  mkdirSync(join(project.path, ".codegent", "worktrees"), { recursive: true });
+  const path = join(project.path, ".rvmp", "worktrees", branch.replace(/\//g, "-"));
+  mkdirSync(join(project.path, ".rvmp", "worktrees"), { recursive: true });
   await ensureExcluded(project.path);
   await git(project.path, "worktree", "add", "-b", branch, path, base);
   const wt: Worktree = {

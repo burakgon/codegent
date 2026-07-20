@@ -20,7 +20,7 @@ async function waitFor(
 }
 
 test("pty session: data flows, ring accumulates, write works", async () => {
-  const ringPath = `/tmp/codegent-s-${crypto.randomUUID()}.bin`;
+  const ringPath = `/tmp/rvmp-s-${crypto.randomUUID()}.bin`;
   const s = new PtySession({ id: "s1", cwd: "/tmp", ringPath });
   const got: Uint8Array[] = [];
   const off = s.onData((b) => got.push(b));
@@ -40,7 +40,7 @@ test("pty session: data flows, ring accumulates, write works", async () => {
 }, 15000);
 
 test("pty session: kill() terminates the shell and resolves exited", async () => {
-  const ringPath = `/tmp/codegent-k-${crypto.randomUUID()}.bin`;
+  const ringPath = `/tmp/rvmp-k-${crypto.randomUUID()}.bin`;
   const s = new PtySession({ id: "k1", cwd: "/tmp", ringPath });
   // Wait for first output (prompt) so we kill a fully started interactive shell —
   // interactive shells ignore SIGTERM, which is exactly what this test pins down.
@@ -68,7 +68,7 @@ test("scrubAgentEnv drops CLAUDE* keys and pins TERM", () => {
 });
 
 test("pty session: cmd spawns a non-shell binary (cat) and terminate() after exit is a no-op", async () => {
-  const ringPath = `/tmp/codegent-cmd-${crypto.randomUUID()}.bin`;
+  const ringPath = `/tmp/rvmp-cmd-${crypto.randomUUID()}.bin`;
   const s = new PtySession({ id: "cmd1", cwd: "/tmp", cmd: ["cat"], ringPath });
   s.write("CMD_ROUNDTRIP\r");
   await waitFor(() => new TextDecoder().decode(s.snapshot()), "CMD_ROUNDTRIP", 10_000);
@@ -90,37 +90,37 @@ test("pty session: cmd spawns a non-shell binary (cat) and terminate() after exi
 }, 15000);
 
 test("pty session: base env is scrubbed — CLAUDE* never reaches the child", async () => {
-  const ringPath = `/tmp/codegent-env-${crypto.randomUUID()}.bin`;
+  const ringPath = `/tmp/rvmp-env-${crypto.randomUUID()}.bin`;
   process.env.CLAUDE_TEST = "1"; // must be dropped
-  process.env.CODEGENT_ENV_PROBE = "kept"; // positive control: proves capture worked
+  process.env.RVMP_ENV_PROBE = "kept"; // positive control: proves capture worked
   try {
     const s = new PtySession({ id: "env1", cwd: "/tmp", cmd: ["/usr/bin/env"], ringPath });
     // Wait on the ring, not exited: the positive control doubles as the
     // "output actually captured" gate (an empty snapshot could never pass).
-    await waitFor(() => new TextDecoder().decode(s.snapshot()), "CODEGENT_ENV_PROBE=kept", 10_000);
+    await waitFor(() => new TextDecoder().decode(s.snapshot()), "RVMP_ENV_PROBE=kept", 10_000);
     await s.exited;
     const out = new TextDecoder().decode(s.snapshot());
-    expect(out).toContain("CODEGENT_ENV_PROBE=kept");
+    expect(out).toContain("RVMP_ENV_PROBE=kept");
     expect(out).toContain("TERM=xterm-256color");
     expect(out).not.toContain("CLAUDE_TEST");
   } finally {
     delete process.env.CLAUDE_TEST;
-    delete process.env.CODEGENT_ENV_PROBE;
+    delete process.env.RVMP_ENV_PROBE;
   }
 }, 15000);
 
 test("pty session: opts.env merges over the scrubbed base", async () => {
-  const ringPath = `/tmp/codegent-envm-${crypto.randomUUID()}.bin`;
+  const ringPath = `/tmp/rvmp-envm-${crypto.randomUUID()}.bin`;
   const s = new PtySession({
     id: "envm1", cwd: "/tmp", cmd: ["/usr/bin/env"], ringPath,
-    env: { CODEGENT_DISPATCH_ID: "d-42" }, // what adapters will inject
+    env: { RVMP_DISPATCH_ID: "d-42" }, // what adapters will inject
   });
-  await waitFor(() => new TextDecoder().decode(s.snapshot()), "CODEGENT_DISPATCH_ID=d-42", 10_000);
+  await waitFor(() => new TextDecoder().decode(s.snapshot()), "RVMP_DISPATCH_ID=d-42", 10_000);
   await s.exited;
 }, 15000);
 
 test("pty session: terminate() escalates past an ignored SIGHUP within budget", async () => {
-  const ringPath = `/tmp/codegent-term-${crypto.randomUUID()}.bin`;
+  const ringPath = `/tmp/rvmp-term-${crypto.randomUUID()}.bin`;
   // SIGHUP-immune child: the ladder's first rung must fail, SIGTERM must land.
   // `exec` replaces sh with sleep in the SAME process (ignored-signal
   // dispositions survive exec), so SIGTERM kills it directly and no

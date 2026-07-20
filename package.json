@@ -1,7 +1,10 @@
 {
-  "name": "codegent",
+  "name": "rvmp",
   "private": true,
-  "workspaces": ["packages/*", "apps/*"],
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
     "test": "bun test",
     "typecheck": "bun run --cwd packages/protocol typecheck && bun run --cwd apps/daemon typecheck && bun run --cwd apps/web typecheck",

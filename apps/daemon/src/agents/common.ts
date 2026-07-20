@@ -51,8 +51,8 @@ export function buildTaskPrompt(t: {
     [
       `Task: ${t.title}`,
       body || null,
-      `You are working on codegent card ${t.cardId}, attempt ${t.attemptId}, dispatch ${t.dispatchId}. ` +
-        `Use the codegent MCP tools: call task_get to re-read this task, and call task_progress with a one-line note after each meaningful step. ` +
+      `You are working on rvmp card ${t.cardId}, attempt ${t.attemptId}, dispatch ${t.dispatchId}. ` +
+        `Use the rvmp MCP tools: call task_get to re-read this task, and call task_progress with a one-line note after each meaningful step. ` +
         `When you are finished, commit your work in this worktree, then call task_complete with a short summary — completion is rejected while the worktree has uncommitted changes. ` +
         `Report completion exactly once, even if the task failed: call task_complete describing what went wrong instead of leaving the task open.`,
       extra || null,

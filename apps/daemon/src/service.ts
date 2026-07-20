@@ -25,14 +25,14 @@ export const execRunner: ServiceRunner = async (cmd) => {
 
 export type ServiceStatus = "enabled" | "disabled" | "unsupported";
 
-const LAUNCHD_LABEL = "io.codegent.daemon";
+const LAUNCHD_LABEL = "io.rvmp.daemon";
 
 export function launchdPlistPath(home = homedir()): string {
   return join(home, "Library", "LaunchAgents", `${LAUNCHD_LABEL}.plist`);
 }
 
 export function systemdUnitPath(home = homedir()): string {
-  return join(home, ".config", "systemd", "user", "codegent.service");
+  return join(home, ".config", "systemd", "user", "rvmp.service");
 }
 
 const xml = (s: string): string =>
@@ -42,12 +42,12 @@ const xml = (s: string): string =>
  * bake a sane PATH into the unit (review A-Imp: probes/spawns failed under
  * the service's bare environment). */
 export function servicePath(home = homedir()): string {
-  return [join(home, ".codegent", "bin"), join(home, ".local", "bin"), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"].join(":");
+  return [join(home, ".rvmp", "bin"), join(home, ".local", "bin"), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"].join(":");
 }
 
-/** Deterministic launchd plist: RunAtLoad + KeepAlive, logs under ~/.codegent/logs. */
+/** Deterministic launchd plist: RunAtLoad + KeepAlive, logs under ~/.rvmp/logs. */
 export function launchdPlist(binPath: string, home = homedir()): string {
-  const logDir = join(home, ".codegent", "logs");
+  const logDir = join(home, ".rvmp", "logs");
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -73,7 +73,7 @@ export function launchdPlist(binPath: string, home = homedir()): string {
 /** Deterministic systemd --user unit (path quoted — spaces survive). */
 export function systemdUnit(binPath: string, home = homedir()): string {
   return `[Unit]
-Description=codegent daemon
+Description=rvmp daemon
 
 [Service]
 ExecStart="${binPath}" start --no-open
@@ -100,7 +100,7 @@ const deps = (d?: ServiceDeps) => ({
 /** Install + start the user service for `binPath`. Idempotent. */
 export async function enableService(binPath: string, d?: ServiceDeps): Promise<ServiceStatus> {
   const { run, platform, home } = deps(d);
-  mkdirSync(join(home, ".codegent", "logs"), { recursive: true });
+  mkdirSync(join(home, ".rvmp", "logs"), { recursive: true });
   if (platform === "darwin") {
     const plist = launchdPlistPath(home);
     mkdirSync(join(home, "Library", "LaunchAgents"), { recursive: true });
@@ -115,11 +115,11 @@ export async function enableService(binPath: string, d?: ServiceDeps): Promise<S
     // Restart is needed ONLY when an old daemon is already running (binary
     // swap); on first enable it would double-start and boot-reconcile the
     // fresh daemon's dispatches (verify [medium]).
-    const wasActive = (await run(["systemctl", "--user", "is-active", "codegent.service"])).code === 0;
+    const wasActive = (await run(["systemctl", "--user", "is-active", "rvmp.service"])).code === 0;
     writeFileSync(unit, systemdUnit(binPath, home));
     const reload = await run(["systemctl", "--user", "daemon-reload"]);
-    const en = await run(["systemctl", "--user", "enable", "--now", "codegent.service"]);
-    const restart = wasActive ? await run(["systemctl", "--user", "restart", "codegent.service"]) : { code: 0 };
+    const en = await run(["systemctl", "--user", "enable", "--now", "rvmp.service"]);
+    const restart = wasActive ? await run(["systemctl", "--user", "restart", "rvmp.service"]) : { code: 0 };
     return reload.code === 0 && en.code === 0 && restart.code === 0 ? "enabled" : "disabled";
   }
   return "unsupported";
@@ -139,7 +139,7 @@ export async function disableService(d?: ServiceDeps): Promise<ServiceStatus> {
   if (platform === "linux") {
     const unit = systemdUnitPath(home);
     if (existsSync(unit)) {
-      await run(["systemctl", "--user", "disable", "--now", "codegent.service"]);
+      await run(["systemctl", "--user", "disable", "--now", "rvmp.service"]);
       rmSync(unit, { force: true });
       await run(["systemctl", "--user", "daemon-reload"]);
     }
@@ -157,7 +157,7 @@ export async function serviceStatus(d?: ServiceDeps): Promise<ServiceStatus> {
   }
   if (platform === "linux") {
     if (!existsSync(systemdUnitPath(home))) return "disabled";
-    const res = await run(["systemctl", "--user", "is-enabled", "codegent.service"]);
+    const res = await run(["systemctl", "--user", "is-enabled", "rvmp.service"]);
     return res.code === 0 ? "enabled" : "disabled";
   }
   return "unsupported";

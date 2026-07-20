@@ -6,14 +6,14 @@ body:
     id: what
     attributes:
       label: What happened?
-      description: What you did, what you expected, what you got. `codegent doctor` output helps.
+      description: What you did, what you expected, what you got. `rvmp doctor` output helps.
     validations:
       required: true
   - type: input
     id: version
     attributes:
       label: Version
-      placeholder: codegent --version
+      placeholder: rvmp --version
     validations:
       required: true
   - type: input

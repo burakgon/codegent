@@ -59,7 +59,7 @@ describe("task add against a live daemon", () => {
     // no projects yet → honest message
     expect((await taskAdd("T", null, probe)).message).toContain("no projects yet");
 
-    const H = { "x-codegent-token": "clitoken", "content-type": "application/json" };
+    const H = { "x-rvmp-token": "clitoken", "content-type": "application/json" };
     const dirA = mkdtempSync(join(tmpdir(), "cg-proj-a-"));
     const dirB = mkdtempSync(join(tmpdir(), "cg-proj-b-"));
     await fetch(`http://127.0.0.1:${port}/api/projects`, { method: "POST", headers: H, body: JSON.stringify({ name: "A", path: dirA, skipGitCheck: true, baseBranch: "main" }) });

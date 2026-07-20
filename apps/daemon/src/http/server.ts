@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { join, resolve, sep } from "node:path";
 import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { CardSchema, MarkStateBodySchema, ProjectSchema, SessionMetaSchema, WorktreeSchema } from "@codegent/protocol";
+import { CardSchema, MarkStateBodySchema, ProjectSchema, SessionMetaSchema, WorktreeSchema } from "@rvmp/protocol";
 import { createProject, listProjects, setWorkerLimit, updateProjectSettings } from "../store/projects";
 import { createCard, updateCard, getCard, listCards } from "../store/cards";
 import { listTimeline } from "../store/timeline";
@@ -512,7 +512,7 @@ async function probeAgents(): Promise<Array<{ name: string; path: string | null;
  * [3] the dev monorepo path. First EXISTING wins; dev path is the fallback
  * even when absent so the error message stays actionable. */
 export function resolveWebDist(execPath = process.execPath, dir = import.meta.dir): string {
-  const override = process.env.CODEGENT_WEB_DIST;
+  const override = process.env.RVMP_WEB_DIST;
   if (override) return override;
   const packaged = join(execPath, "..", "..", "share", "web");
   if (existsSync(packaged)) return packaged;
@@ -534,7 +534,7 @@ export function startServer(
     async fetch(req, srv) {
       const url = new URL(req.url);
       const authed =
-        url.searchParams.get("t") === cfg.token || req.headers.get("x-codegent-token") === cfg.token;
+        url.searchParams.get("t") === cfg.token || req.headers.get("x-rvmp-token") === cfg.token;
 
       if (url.pathname === "/ws") {
         if (!authed) return new Response("unauthorized", { status: 401 });

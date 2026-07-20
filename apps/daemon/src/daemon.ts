@@ -92,9 +92,9 @@ export async function startDaemon(): Promise<{ url: string; token: string; stop:
 
   const srv = startServer(cfg, db, ptys, engine);
   // Discovery record: written only now that the port genuinely SERVES —
-  // `codegent`/task-add probe exactly this port with the token (A-C1/A-C2).
+  // `rvmp`/task-add probe exactly this port with the token (A-C1/A-C2).
   writeFileSync(join(cfg.dataDir, "port"), String(cfg.port));
-  console.log(`codegent daemon → ${srv.url}#t=${cfg.token}`);
+  console.log(`rvmp daemon → ${srv.url}#t=${cfg.token}`);
 
   // R1 at boot (queued auto:on cards start when slots are free — boot
   // reconciliation above already ran, so no stale rows hold slots), then the

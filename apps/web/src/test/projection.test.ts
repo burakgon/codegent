@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Card, SessionMeta } from "@codegent/protocol";
+import type { Card, SessionMeta } from "@rvmp/protocol";
 import {
   cardRoutesToTerminal,
   columnOf,

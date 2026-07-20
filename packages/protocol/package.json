@@ -1,6 +1,6 @@
 {
-  "name": "@codegent/protocol",
-  "version": "1.0.0",
+  "name": "@rvmp/protocol",
+  "version": "1.0.1",
   "type": "module",
   "main": "src/index.ts",
   "scripts": {

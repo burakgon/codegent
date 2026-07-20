@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import type { Card, SessionMeta, Worktree } from "@codegent/protocol";
+import type { Card, SessionMeta, Worktree } from "@rvmp/protocol";
 import { formatElapsed, railSessionEntries } from "../projection";
 
 export function SessionRail({ sessions, cards, worktrees, openIds, focusedId, onPick, onNew, now: fixedNow }: {

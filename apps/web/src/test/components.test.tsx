@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { join } from "node:path";
-import type { Card, SessionMeta } from "@codegent/protocol";
+import type { Card, SessionMeta } from "@rvmp/protocol";
 import { CardView, destructiveActionFor } from "../components/Card";
 import type { CardNoticeKind } from "../projection";
 import { Details, sendBackComments } from "../components/Details";

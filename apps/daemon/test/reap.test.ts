@@ -79,7 +79,7 @@ test("next boot removes an early marker whose process group died before spawn re
   const settingsDir = join(dataDir, "agents", "early-dead-dispatch");
   mkdirSync(settingsDir, { recursive: true });
   recordProcessGroup(settingsDir, 2_000_000_000, "early-dead-dispatch");
-  expect(existsSync(join(settingsDir, ".codegent-process-group.json"))).toBe(true);
+  expect(existsSync(join(settingsDir, ".rvmp-process-group.json"))).toBe(true);
 
   const terminalDb = { query: () => ({ get: () => null }) } as unknown as Database;
   sweepSettingsDirs(terminalDb, dataDir);

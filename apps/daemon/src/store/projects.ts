@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import type { Project } from "@codegent/protocol";
+import type { Project } from "@rvmp/protocol";
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
 const rowToProject = (r: any): Project => ({

@@ -1,16 +1,16 @@
 {
-  "name": "@codegent/daemon",
-  "version": "1.0.0",
+  "name": "@rvmp/daemon",
+  "version": "1.0.1",
   "type": "module",
   "scripts": {
     "dev": "bun --watch src/index.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@codegent/protocol": "workspace:*",
+    "@rvmp/protocol": "workspace:*",
     "@modelcontextprotocol/sdk": "1.29.0"
   },
   "bin": {
-    "codegent": "src/cli.ts"
+    "rvmp": "src/cli.ts"
   }
 }

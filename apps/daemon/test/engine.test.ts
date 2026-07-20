@@ -3,7 +3,7 @@ import type { Database } from "bun:sqlite";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Card, DomainEvent, Project, SessionMeta, Worktree } from "@codegent/protocol";
+import type { Card, DomainEvent, Project, SessionMeta, Worktree } from "@rvmp/protocol";
 import { openDb } from "../src/store/db";
 import { createProject } from "../src/store/projects";
 import { createCard, getCard, updateCard } from "../src/store/cards";

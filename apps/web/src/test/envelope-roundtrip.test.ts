@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { encodeEnvelope, decodeEnvelope } from "@codegent/protocol";
+import { encodeEnvelope, decodeEnvelope } from "@rvmp/protocol";
 import { b64ToBytes, bytesToB64 } from "../api";
 
 test("base64 helpers roundtrip", () => {

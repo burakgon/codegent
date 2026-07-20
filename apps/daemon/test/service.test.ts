@@ -18,16 +18,16 @@ const scripted = (fail: string[] = []) => {
 
 describe("unit file generation", () => {
   test("launchd plist carries label, start --no-open, KeepAlive, log paths", () => {
-    const p = launchdPlist("/opt/codegent/bin/codegent", "/home/u");
-    expect(p).toContain("<string>io.codegent.daemon</string>");
-    expect(p).toContain("<string>/opt/codegent/bin/codegent</string>");
+    const p = launchdPlist("/opt/rvmp/bin/rvmp", "/home/u");
+    expect(p).toContain("<string>io.rvmp.daemon</string>");
+    expect(p).toContain("<string>/opt/rvmp/bin/rvmp</string>");
     expect(p).toContain("<string>--no-open</string>");
     expect(p).toContain("<key>KeepAlive</key><true/>");
-    expect(p).toContain("/home/u/.codegent/logs/daemon.log");
+    expect(p).toContain("/home/u/.rvmp/logs/daemon.log");
   });
   test("systemd unit restarts on failure and wants default.target", () => {
-    const u = systemdUnit("/usr/local/bin/codegent");
-    expect(u).toContain('ExecStart="/usr/local/bin/codegent" start --no-open'); // quoted: spaces survive
+    const u = systemdUnit("/usr/local/bin/rvmp");
+    expect(u).toContain('ExecStart="/usr/local/bin/rvmp" start --no-open'); // quoted: spaces survive
     expect(u).toContain("Environment=PATH="); // agent CLIs need a real PATH under systemd
     expect(u).toContain("Restart=on-failure");
     expect(u).toContain("WantedBy=default.target");
@@ -60,14 +60,14 @@ describe("enable/disable/status per platform", () => {
     expect(await enableService("/bin/cg", { run: s.run, platform: "linux", home })).toBe("enabled");
     expect(readFileSync(systemdUnitPath(home), "utf8")).toContain('ExecStart="/bin/cg" start --no-open');
     expect(s.calls).toEqual([
-      ["systemctl", "--user", "is-active", "codegent.service"], // restart ONLY when an old daemon runs
+      ["systemctl", "--user", "is-active", "rvmp.service"], // restart ONLY when an old daemon runs
       ["systemctl", "--user", "daemon-reload"],
-      ["systemctl", "--user", "enable", "--now", "codegent.service"],
+      ["systemctl", "--user", "enable", "--now", "rvmp.service"],
     ]);
     // Re-enable over a RUNNING daemon adds the binary-swapping restart.
     const live = scripted(); // is-active exits 0 in the stub → treated active
     await enableService("/bin/cg2", { run: live.run, platform: "linux", home });
-    expect(live.calls.at(-1)).toEqual(["systemctl", "--user", "restart", "codegent.service"]);
+    expect(live.calls.at(-1)).toEqual(["systemctl", "--user", "restart", "rvmp.service"]);
     expect(await disableService({ run: s.run, platform: "linux", home })).toBe("disabled");
     expect(existsSync(systemdUnitPath(home))).toBe(false);
     rmSync(home, { recursive: true, force: true });

@@ -1,6 +1,6 @@
 import React from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { Project } from "@codegent/protocol";
+import type { Project } from "@rvmp/protocol";
 import { api } from "../api";
 import type { View } from "./Shell";
 

@@ -1,7 +1,7 @@
-// codegent MCP sidecar — spawned per dispatch by adapters (T7) as
+// rvmp MCP sidecar — spawned per dispatch by adapters (T7) as
 //   bun apps/daemon/src/agents/mcp-entry.ts
-// with env CODEGENT_HOOK_PORT / CODEGENT_HOOK_TOKEN (signal-plane endpoint)
-// and CODEGENT_CARD_ID / CODEGENT_DISPATCH_ID (dispatch envelope), set at
+// with env RVMP_HOOK_PORT / RVMP_HOOK_TOKEN (signal-plane endpoint)
+// and RVMP_CARD_ID / RVMP_DISPATCH_ID (dispatch envelope), set at
 // spawn via the generated mcp.json. Speaks MCP over stdio to the agent CLI and
 // forwards to the daemon's loopback agent API.
 //
@@ -23,12 +23,12 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 
 const env = (k: string): string => process.env[k] ?? "";
-const ids = () => ({ card: Number(env("CODEGENT_CARD_ID")), dispatch: env("CODEGENT_DISPATCH_ID") });
+const ids = () => ({ card: Number(env("RVMP_CARD_ID")), dispatch: env("RVMP_DISPATCH_ID") });
 
 async function daemon(method: "GET" | "POST", path: string, body?: unknown): Promise<any> {
-  const res = await fetch(`http://127.0.0.1:${env("CODEGENT_HOOK_PORT")}/api/agent${path}`, {
+  const res = await fetch(`http://127.0.0.1:${env("RVMP_HOOK_PORT")}/api/agent${path}`, {
     method,
-    headers: { "x-codegent-hook-token": env("CODEGENT_HOOK_TOKEN"), "content-type": "application/json" },
+    headers: { "x-rvmp-hook-token": env("RVMP_HOOK_TOKEN"), "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(10_000),
   });
@@ -70,7 +70,7 @@ const TOOLS: Tool[] = [
 const text = (t: string): CallToolResult => ({ content: [{ type: "text", text: t }] });
 const toolError = (t: string): CallToolResult => ({ content: [{ type: "text", text: t }], isError: true });
 
-const server = new Server({ name: "codegent", version: "0.2.0" }, { capabilities: { tools: {} } });
+const server = new Server({ name: "rvmp", version: "0.2.0" }, { capabilities: { tools: {} } });
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
 

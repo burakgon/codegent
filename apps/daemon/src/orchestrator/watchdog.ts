@@ -1,4 +1,4 @@
-import type { DomainEvent, InputKind, MarkState } from "@codegent/protocol";
+import type { DomainEvent, InputKind, MarkState } from "@rvmp/protocol";
 import type { DetectStateSnapshot } from "../agents/types";
 
 /**

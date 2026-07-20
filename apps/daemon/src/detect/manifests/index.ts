@@ -22,11 +22,11 @@ export const BUNDLED_MANIFEST_NAMES = [
 export type BundledManifestName = (typeof BUNDLED_MANIFEST_NAMES)[number];
 
 export interface ManifestLookupOptions {
-  /** Test/tooling seam; production uses ~/.config/codegent/agent-detection. */
+  /** Test/tooling seam; production uses ~/.config/rvmp/agent-detection. */
   readonly overrideDir?: string;
 }
 
-const DEFAULT_OVERRIDE_DIR = join(homedir(), ".config", "codegent", "agent-detection");
+const DEFAULT_OVERRIDE_DIR = join(homedir(), ".config", "rvmp", "agent-detection");
 const SAFE_AGENT_ID = /^[a-z0-9][a-z0-9_-]*$/;
 
 function bundledManifest(name: BundledManifestName, toml: string): Manifest {

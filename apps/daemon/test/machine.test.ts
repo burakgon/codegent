@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { CardSchema, type Card, type InputKind } from "@codegent/protocol";
+import { CardSchema, type Card, type InputKind } from "@rvmp/protocol";
 import {
   dispatchEffect, IllegalTransition, transition, type Effect, type MachineEvent,
 } from "../src/orchestrator/machine";

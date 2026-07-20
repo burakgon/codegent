@@ -5,7 +5,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Attempt, Card, Dispatch, Project, SessionMeta } from "@codegent/protocol";
+import type { Attempt, Card, Dispatch, Project, SessionMeta } from "@rvmp/protocol";
 import type { OpenSessionOpts } from "../src/pty/manager";
 import { CodexAdapter, codexSessionsStore, normalizeCodexHook } from "../src/agents/codex";
 import type { AdapterPtySession, AdapterSignal, SpawnCtx } from "../src/agents/types";
@@ -126,7 +126,7 @@ test("spawn records the process group before prompt readiness work completes", a
   const settingsDir = homeOf(dataDir, earlyDispatch.id);
 
   const spawning = adapter.spawn(ctx({ dispatch: earlyDispatch }));
-  const markerBeforeReadiness = existsSync(join(settingsDir, ".codegent-process-group.json"));
+  const markerBeforeReadiness = existsSync(join(settingsDir, ".rvmp-process-group.json"));
   const writesBeforeReadiness = [...ptys.writes];
   await spawning;
 
@@ -270,17 +270,17 @@ test("spawn builds the per-dispatch home: user config copied + trust + MCP entry
   const real = realpathSync(wt);
   if (real !== wt) expect(cfg.projects[real].trust_level).toBe("trusted");
   // MCP sidecar entry with the dispatch envelope (same contract as claude's mcp.json).
-  const mcp = cfg.mcp_servers.codegent;
+  const mcp = cfg.mcp_servers.rvmp;
   expect(mcp.command).toBe("bun");
   expect(mcp.args).toHaveLength(1);
   expect(mcp.args[0].endsWith("mcp-entry.ts")).toBe(true);
   expect(existsSync(mcp.args[0])).toBe(true); // the args target must actually exist
   expect(mcp.default_tools_approval_mode).toBe("approve");
   expect(mcp.env).toEqual({
-    CODEGENT_HOOK_PORT: String(HOOK_PORT),
-    CODEGENT_HOOK_TOKEN: HOOK_TOKEN,
-    CODEGENT_CARD_ID: "7",
-    CODEGENT_DISPATCH_ID: "d-123",
+    RVMP_HOOK_PORT: String(HOOK_PORT),
+    RVMP_HOOK_TOKEN: HOOK_TOKEN,
+    RVMP_CARD_ID: "7",
+    RVMP_DISPATCH_ID: "d-123",
   });
 
   // auth.json: byte-for-byte copy, private mode.
@@ -297,7 +297,7 @@ test("spawn builds the per-dispatch home: user config copied + trust + MCP entry
     "SessionStart", "Stop", "SubagentStart", "SubagentStop", "UserPromptSubmit",
   ]);
   const wantCmd =
-    `CODEGENT_SESSION_ID=\${CODEGENT_SESSION_ID:-'d-123'} '${join(dataDir, "agents", "hook.sh")}' codex`;
+    `RVMP_SESSION_ID=\${RVMP_SESSION_ID:-'d-123'} '${join(dataDir, "agents", "hook.sh")}' codex`;
   for (const entries of Object.values(hooks)) {
     expect(entries).toEqual([{ hooks: [{ type: "command", command: wantCmd }] }]);
   }
@@ -323,7 +323,7 @@ test("the user's ~/.codex is NEVER touched: content, mtimes, and file list ident
 });
 
 test("envelope race regression lock: near-simultaneous spawns each keep their OWN dispatch env + hook identity", async () => {
-  // The old SHARED mirror made [mcp_servers.codegent.env] last-writer-wins —
+  // The old SHARED mirror made [mcp_servers.rvmp.env] last-writer-wins —
   // two concurrent codex spawns could hand one sidecar the OTHER dispatch's
   // card+dispatch envelope, and a consistent swap would pass the ownership
   // check and complete the WRONG card. Per-dispatch homes close it: each
@@ -341,10 +341,10 @@ test("envelope race regression lock: near-simultaneous spawns each keep their OW
   ]);
   const cfgOf = (id: string): any =>
     (Bun as any).TOML.parse(readFileSync(join(homeOf(dataDir, id), "config.toml"), "utf8"));
-  expect(cfgOf("d-123").mcp_servers.codegent.env.CODEGENT_DISPATCH_ID).toBe("d-123");
-  expect(cfgOf("d-123").mcp_servers.codegent.env.CODEGENT_CARD_ID).toBe("7");
-  expect(cfgOf("d-456").mcp_servers.codegent.env.CODEGENT_DISPATCH_ID).toBe("d-456");
-  expect(cfgOf("d-456").mcp_servers.codegent.env.CODEGENT_CARD_ID).toBe("8");
+  expect(cfgOf("d-123").mcp_servers.rvmp.env.RVMP_DISPATCH_ID).toBe("d-123");
+  expect(cfgOf("d-123").mcp_servers.rvmp.env.RVMP_CARD_ID).toBe("7");
+  expect(cfgOf("d-456").mcp_servers.rvmp.env.RVMP_DISPATCH_ID).toBe("d-456");
+  expect(cfgOf("d-456").mcp_servers.rvmp.env.RVMP_CARD_ID).toBe("8");
   expect(readFileSync(join(homeOf(dataDir, "d-123"), "hooks.json"), "utf8")).toContain("'d-123'");
   expect(readFileSync(join(homeOf(dataDir, "d-456"), "hooks.json"), "utf8")).toContain("'d-456'");
 });
@@ -382,7 +382,7 @@ test("a user with no ~/.codex at all still gets a working home (managed block on
   const home = homeOf(dataDir, "d-123");
   const cfg = (Bun as any).TOML.parse(readFileSync(join(home, "config.toml"), "utf8")) as any;
   expect(cfg.projects[wt].trust_level).toBe("trusted");
-  expect(cfg.mcp_servers.codegent.command).toBe("bun");
+  expect(cfg.mcp_servers.rvmp.command).toBe("bun");
   expect(existsSync(join(home, "auth.json"))).toBe(false); // nothing to copy — codex will show login
   expect(existsSync(join(home, "hooks.json"))).toBe(true);
   expect(lstatSync(join(home, "sessions")).isSymbolicLink()).toBe(true);
@@ -406,7 +406,7 @@ test("mirror SOURCE honors a custom $CODEX_HOME env — unless it lies in our ma
     expect(readFileSync(join(home1, "config.toml"), "utf8")).toContain(`model = "from-custom-home"`);
 
     // CODEX_HOME pointing INSIDE our managed tree (a daemon launched from a
-    // codegent codex pane inherits the per-dispatch home) must NOT
+    // rvmp codex pane inherits the per-dispatch home) must NOT
     // self-mirror: the source config already carries a managed block, and
     // copying it would stack a second one into invalid TOML. Hermetic ~ for
     // the fallback (os.homedir honors $HOME on POSIX) — the test never reads
@@ -422,7 +422,7 @@ test("mirror SOURCE honors a custom $CODEX_HOME env — unless it lies in our ma
     // Exactly one managed block — built from a non-managed source (the
     // hermetic empty ~), never from home1; a self-mirror would have stacked
     // home1's block under this one.
-    expect(cfg2.split("managed by codegent").length - 1).toBe(1);
+    expect(cfg2.split("managed by rvmp").length - 1).toBe(1);
     expect(cfg2).not.toContain(`model = "from-custom-home"`); // custom home no longer the source
 
     // A SYMLINKED spelling of the same per-dispatch home must not defeat the
@@ -435,7 +435,7 @@ test("mirror SOURCE honors a custom $CODEX_HOME env — unless it lies in our ma
     });
     await adapter3.spawn(ctx({ dispatch: { ...dispatch, id: "d-458" } }));
     const cfg3 = readFileSync(join(homeOf(dataDir, "d-458"), "config.toml"), "utf8");
-    expect(cfg3.split("managed by codegent").length - 1).toBe(1);
+    expect(cfg3.split("managed by rvmp").length - 1).toBe(1);
     expect(cfg3).not.toContain(`model = "from-custom-home"`);
   } finally {
     if (saved === undefined) delete process.env.CODEX_HOME;
@@ -449,13 +449,13 @@ test("hook command identity semantics: per-process env wins, baked id is the fal
   // The home is per-dispatch, so the baked id always matches — the construct
   // stays as belt-and-braces: the spawn-time PTY env id resolves first, the
   // baked id covers a CLI that scrubs its hook env.
-  const probe = `CODEGENT_SESSION_ID=\${CODEGENT_SESSION_ID:-'baked-id'} printenv CODEGENT_SESSION_ID`;
+  const probe = `RVMP_SESSION_ID=\${RVMP_SESSION_ID:-'baked-id'} printenv RVMP_SESSION_ID`;
   const run = async (sid?: string): Promise<string> => {
     const env: Record<string, string> = {};
     for (const [k, v] of Object.entries(process.env)) {
-      if (v !== undefined && k !== "CODEGENT_SESSION_ID") env[k] = v;
+      if (v !== undefined && k !== "RVMP_SESSION_ID") env[k] = v;
     }
-    if (sid !== undefined) env.CODEGENT_SESSION_ID = sid;
+    if (sid !== undefined) env.RVMP_SESSION_ID = sid;
     const p = Bun.spawn({ cmd: ["/bin/sh", "-c", probe], env, stdout: "pipe" });
     await p.exited;
     return (await new Response(p.stdout).text()).trim();
@@ -465,13 +465,13 @@ test("hook command identity semantics: per-process env wins, baked id is the fal
 });
 
 for (const mode of ["ask", "auto", "host"] as const) {
-  test(`mirror config: codegent MCP tools are server-scoped pre-approved in ${mode} mode`, async () => {
+  test(`mirror config: rvmp MCP tools are server-scoped pre-approved in ${mode} mode`, async () => {
     const { dataDir, adapter } = makeWorld({ userCodexDir: null });
     await adapter.spawn(ctx({ mode }));
     const cfg = (Bun as any).TOML.parse(
       readFileSync(join(homeOf(dataDir, "d-123"), "config.toml"), "utf8"),
     ) as any;
-    expect(cfg.mcp_servers.codegent.default_tools_approval_mode).toBe("approve");
+    expect(cfg.mcp_servers.rvmp.default_tools_approval_mode).toBe("approve");
     expect(cfg.approval_policy).toBeUndefined();
   });
 }
@@ -518,7 +518,7 @@ test("spawn argv: no resume subcommand without a resumeSessionId (null included)
   expect(ptys.opened[0]!.cmd).not.toContain("resume");
 });
 
-test("spawn opens an agent-kind PTY in the worktree: CODEX_HOME→per-dispatch home, scrubbed env + CODEGENT_*", async () => {
+test("spawn opens an agent-kind PTY in the worktree: CODEX_HOME→per-dispatch home, scrubbed env + RVMP_*", async () => {
   process.env.CLAUDE_PROBE = "leak"; // daemon itself running inside a CC session
   try {
     const { dataDir, ptys, adapter } = makeWorld({ userCodexDir: null });
@@ -532,9 +532,9 @@ test("spawn opens an agent-kind PTY in the worktree: CODEX_HOME→per-dispatch h
     expect(o.title).toBe("Fix the login bug");
     const env = o.env!;
     expect(env.CODEX_HOME).toBe(homeOf(dataDir, "d-123")); // the isolation seam itself
-    expect(env.CODEGENT_SESSION_ID).toBe("d-123");
-    expect(env.CODEGENT_HOOK_PORT).toBe(String(HOOK_PORT));
-    expect(env.CODEGENT_HOOK_TOKEN).toBe(HOOK_TOKEN);
+    expect(env.RVMP_SESSION_ID).toBe("d-123");
+    expect(env.RVMP_HOOK_PORT).toBe(String(HOOK_PORT));
+    expect(env.RVMP_HOOK_TOKEN).toBe(HOOK_TOKEN);
     expect(env.TERM).toBe("xterm-256color");
     expect(Object.keys(env).filter((k) => k.startsWith("CLAUDE"))).toEqual([]);
     expect(res.sessionMeta).toEqual(ptys.metas[0]!);

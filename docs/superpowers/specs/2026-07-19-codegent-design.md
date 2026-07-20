@@ -1,10 +1,10 @@
-# codegent — Design Specification
+# rvmp — Design Specification
 
 **Date:** 2026-07-19 · **Status:** Draft for owner review · **Language:** Product UI is English. This spec is the single source of truth for v1.
 
-> ⚠️ **Scope revision (2026-07-20): codegent is LOCAL-ONLY.** The hosted zero-knowledge relay, device pairing, E2E crypto, signed bootstrap, LAN-direct, and Web Push are CUT from v0.3 and v1.0 — remote access is the user's own concern (their own tunnel: Tailscale / Cloudflare Tunnel / `ssh -L`). The relay/remote/push parts of the pitch below and of §§1–3, 10, 11 are now PARKED design reference, not the current build. v1 = local terminal-state orchestration (Part 1, done) + review queue/diff (Part 3) + installer/Settings (Part 4). See memory `relay-remote-cut-local-only`.
+> ⚠️ **Scope revision (2026-07-20): rvmp is LOCAL-ONLY.** The hosted zero-knowledge relay, device pairing, E2E crypto, signed bootstrap, LAN-direct, and Web Push are CUT from v0.3 and v1.0 — remote access is the user's own concern (their own tunnel: Tailscale / Cloudflare Tunnel / `ssh -L`). The relay/remote/push parts of the pitch below and of §§1–3, 10, 11 are now PARKED design reference, not the current build. v1 = local terminal-state orchestration (Part 1, done) + review queue/diff (Part 3) + installer/Settings (Part 4). See memory `relay-remote-cut-local-only`.
 
-> codegent is a browser-based AI coding-agent orchestrator: the terminal power of Orca, the kanban orchestration of Vibe Kanban, and zero-knowledge remote access via a relay — in one open-source product. Add a task card from any browser; an agent starts in a real terminal on your machine at home; you get a push when it needs input; you answer in the terminal, review the diff, merge.
+> rvmp is a browser-based AI coding-agent orchestrator: the terminal power of Orca, the kanban orchestration of Vibe Kanban, and zero-knowledge remote access via a relay — in one open-source product. Add a task card from any browser; an agent starts in a real terminal on your machine at home; you get a push when it needs input; you answer in the terminal, review the diff, merge.
 
 ---
 
@@ -38,7 +38,7 @@
 
 | Component | Stack | Notes |
 |---|---|---|
-| **Daemon** | Bun + TypeScript, single compiled binary | PTY manager (Bun-native `Bun.spawn({terminal})`, ≥1.3.5; Rust portable-pty sidecar as fallback — node-pty under Bun is a dead end), git worktree manager, orchestrator engine, SQLite (`bun:sqlite`) at `~/.codegent/`, MCP server, relay client, serves UI on localhost |
+| **Daemon** | Bun + TypeScript, single compiled binary | PTY manager (Bun-native `Bun.spawn({terminal})`, ≥1.3.5; Rust portable-pty sidecar as fallback — node-pty under Bun is a dead end), git worktree manager, orchestrator engine, SQLite (`bun:sqlite`) at `~/.rvmp/`, MCP server, relay client, serves UI on localhost |
 | **Web UI** | React + Vite + TS | **ghostty-web** (`coder/ghostty-web` — Ghostty VT core in WASM) as the terminal renderer — the only terminal engine; no xterm.js anywhere. **Consumed as a source build**: the npm release is stale, so we vendor the repo as a git submodule (`vendor/ghostty-web`) pinned to a recent `main` commit, build it ourselves (toolchain recorded in `docs/research/ghostty-web-spike.md`), and bump the pin deliberately — "latest stable" here means latest healthy main, not the old tag. Tailwind + Radix/shadcn, Motion (animations — library, never hand-rolled), Lucide icons, TanStack Query + one multiplexed WS |
 | **Relay** | Bun, single binary + Docker image | Zero-knowledge frame router; serves the same UI build for remote; hosted at `relay.codegent.io` — GCP **c4a (Axion ARM) + Debian 13 "trixie"** in `europe-west4-a` (mirrors the owner's existing fleet; provisioned via gcloud, start at c4a-standard-1/2 and scale as needed), Caddy for TLS, relay via its Docker image; the **codegent.io website is served from the same VM** (Caddy static). Self-host = same binary |
 | **Adapters** | in daemon | Claude Code (hooks+MCP), Codex (official hooks+MCP), universal terminal-state tier (process-tree + OSC classification + agent manifests, §6) |
@@ -97,7 +97,7 @@ Two orthogonal axes + attachment:
 
 **Invariants:** exactly one active worktree per live card (I1); ≤1 active card per worktree (I2 — pinned-queue runs head card only; archive deferred until the pin list empties; worktree color belongs to the worktree and persists across the chain); sessions only in active worktrees or repo main (I3); archiving kills sessions (confirm if a foreground process is running); scratch worktrees never appear on the board (I5); **attempt entity reserved in schema** (`attempt(id, card_id, worktree_id, seq, status)`, v1 constraint: one per card) so future fan-out is a constraint lift, not a migration (I6).
 
-**Naming:** `cg/<cardId>-<slug>` → collisions impossible for managed trees; scratch names user-chosen (exists → offer attach or auto-suffix). Worktrees live under `<repo>/.codegent/worktrees/` (gitignored) — configurable. Creation runs the project's setup script + copy-globs (§8) before the agent starts.
+**Naming:** `cg/<cardId>-<slug>` → collisions impossible for managed trees; scratch names user-chosen (exists → offer attach or auto-suffix). Worktrees live under `<repo>/.rvmp/worktrees/` (gitignored) — configurable. Creation runs the project's setup script + copy-globs (§8) before the agent starts.
 
 **Disk policy:** archive = `git worktree remove` immediately; branch ref kept **14 days** post-merge/cancel, then pruned (merged ⇒ recoverable from git objects; old diffs render from git forever). Scratch never auto-deleted. Settings shows "N active worktrees · size · archived branches: M · clean up"; warning chip under 10 GB free.
 
@@ -139,7 +139,7 @@ Every mechanism below is **adopted from proven production systems, never invente
 Cross-checks: a title "working" cancels a pending done; hook-`done` fires only after a 1.5s quiet window; process-exit completion needs two consecutive idle samples + a no-child-processes veto; completion identities dedup across sources and remounts.
 
 **The four detection layers (universal tier = all four; premium adds hooks on top):**
-1. **Process-tree identity** — foreground process group of the pane shell, wrapper-unwrapping (node/bun/python/sh/nix), agent registry match; env escape hatch (`CODEGENT_AGENT=<label>`) for sandboxes that hide /proc. Numbers: 300ms tick identified / 500ms unidentified, 5s recheck, 6 consecutive misses = gone, 3s startup grace, 100ms×3 (cap 700ms) idle-confirm hold.
+1. **Process-tree identity** — foreground process group of the pane shell, wrapper-unwrapping (node/bun/python/sh/nix), agent registry match; env escape hatch (`RVMP_AGENT=<label>`) for sandboxes that hide /proc. Numbers: 300ms tick identified / 500ms unidentified, 5s recheck, 6 consecutive misses = gone, 3s startup grace, 100ms×3 (cap 700ms) idle-confirm hold.
 2. **OSC title/progress classification** — braille-spinner range U+2800–U+28FF ⇒ working; per-agent glyphs (Claude `✳` idle; Gemini `✋` permission / `✦⏲` working / `◇` idle); OSC `9;4` progress where an agent emits it (live-REFUTED for CC 2.1.215 — no `]9;` in the binary); Codex literal "Action Required" title ⇒ blocked (top priority, verified ~4ms after PermissionRequest). **Caveat (live-verified): CC's `✳` also shows during a pending permission — CC titles can never signal blocked; CC blocked comes from hooks (premium) or screen rules (universal), titles only ever say working/idle.** Titles are volunteered metadata: retained ≤256 chars, sanitized, cleared on foreground-process change, matched server-side, never surfaced.
 3. **Manifest-scoped blocked patterns** — narrow, priority-ordered `contains`/`regex`/`line_regex` rules over the bottom screenful (default 24 rows) with named regions (prompt-box body, after-last-horizontal-rule); `skip_state_update` rules freeze detection on agent-owned viewer screens (transcript/scroll viewers). Re-asserted every 800ms while visible.
 4. **Quiescence (readiness only)** — screen-state quiet (VT grid unchanged — our server-side emulator diffs it cheaply) + non-shell foreground; never raw byte flow (herdr shipped byte-quiescence and reverted it in 2 days: spinners are never byte-quiet; typing/resize are indistinguishable from work).
@@ -148,7 +148,7 @@ Cross-checks: a title "working" cancels a pending done; hook-`done` fires only a
 
 **Completion transports (I1), in preference order:**
 1. **MCP `task_complete`** — premium and any MCP-capable agent (most modern agents).
-2. **CLI self-report** — MCP-less agents are taught in the dispatch preamble to run `codegent task complete --card <id> --dispatch <id>` (Orca-proven; works for anything that can run a shell command).
+2. **CLI self-report** — MCP-less agents are taught in the dispatch preamble to run `rvmp task complete --card <id> --dispatch <id>` (Orca-proven; works for anything that can run a shell command).
 3. **Neither** → plain terminal session; right-moves past Waiting stay manual.
 **Dispatch envelope (Orca + VK proven, all transports):** every dispatch carries card + attempt + dispatch ids and records the worktree's **before-HEAD commit** per repo (change detection + rewind-retry, VK); completions are deduped against the *live* dispatch AND store-side (write-once terminal status, conditional on `status = running` — VK's latch) so a stale retry can never complete current work; the preamble instructs "report completion exactly once, even on failure"; **`task_complete` precondition: a dirty worktree rejects the completion with the git status echoed back into the agent's own conversation** (VK's stop-gate adapted — the agent commits, then completes; nothing surfaces in our UI); `task_progress` doubles as heartbeat — progress silence >10 min shows a soft warning on the card (never auto-fail; the §5 30-min runaway guard stands); 3 consecutive failed attempts → error(circuit-broken) and R1 moves on. Supervision timings (VK-proven): 30s spawn timeout; cancel = 5s grace then process-group escalation SIGHUP (PTY-native) → 2s → SIGTERM → 2s → SIGKILL, with post-exit reaping of leftover MCP-server children; startup marks every `running` dispatch row failed — nothing self-resumes (§4 reconciliation offers the resume).
 
@@ -158,7 +158,7 @@ Cross-checks: a title "working" cancels a pending done; hook-`done` fires only a
 
 **Operational pipeline (how detection stays correct without redesign):** agent manifests are plugin kind (a) (§12) — community-maintained, date-versioned, fetched from a remote catalog with engine-version gates, locally overridable; core never owns a per-agent pattern treadmill. New/changed prompt shapes surface as latency (card sits in Running/silent), fixed by a manifest update, not a release. Nightly agent contract tests run the real CLIs against the truth table (§4.1) and OSC/glyph expectations; unknown agent versions run in a flagged degraded mode. Manifest debug tooling (rule-trace explain + screen fixture capture, herdr model) ships with the manifest engine.
 
-**In-band status channel (plugin tier, v0.4):** a documented `codegent` OSC escape (Orca's 9999 model — JSON status vocabulary only, parsed statefully and stripped before display) lets wrapped/instrumented agents self-report state with zero networking and automatic pane attribution. Status vocabulary only; it cannot carry content.
+**In-band status channel (plugin tier, v0.4):** a documented `rvmp` OSC escape (Orca's 9999 model — JSON status vocabulary only, parsed statefully and stripped before display) lets wrapped/instrumented agents self-report state with zero networking and automatic pane attribution. Status vocabulary only; it cannot carry content.
 
 **What we never do:** byte-quiescence as a primary signal · captured text, previews, or question content in the UI (classification reads the screen daemon-side; only state enums cross to the UI — stated plainly in the threat model) · protocol-rendered chat: **ACP is demoted out of core** — ACP mode replaces the agent's own TUI with a protocol session, the opposite of principle 2, and both reference systems solved terminal-resident orchestration without it. Revisit only if agents adopt ACP natively with TUI-preserving semantics; a future ACP client would arrive as a plugin, not core.
 
@@ -168,7 +168,7 @@ Cross-checks: a title "working" cancels a pending done; hook-`done` fires only a
 
 ## 7. UI specification
 
-Three views per project: **Board (1) · Terminal (2) · Diff (3)**. Global chrome: project sidebar, bottom attention strip, command palette (K), browser tab-title badge `(n) codegent` where n = errors+inputs.
+Three views per project: **Board (1) · Terminal (2) · Diff (3)**. Global chrome: project sidebar, bottom attention strip, command palette (K), browser tab-title badge `(n) rvmp` where n = errors+inputs.
 
 **Keyboard map (v1):** `1/2/3` views · `K` palette · `n` new task · `t` new terminal · Diff: `j/k` file nav, `v` mark reviewed · `Esc` clears overlays/board focus · `⌘D` split, `⌘F` scrollback search (terminal).
 
@@ -238,7 +238,7 @@ One click each, no dialogs, no error text shown anywhere (principle 1).
 
 ## 10. Relay & security
 
-- **Protocol:** browser ⇆ daemon E2E via libsodium — X25519 device keys, per-connection key exchange, XChaCha20-Poly1305 frames over WSS through the relay. Relay sees device IDs, frame sizes, timing — never content. README states it plainly; self-host = same binary (`docker run codegent/relay`).
+- **Protocol:** browser ⇆ daemon E2E via libsodium — X25519 device keys, per-connection key exchange, XChaCha20-Poly1305 frames over WSS through the relay. Relay sees device IDs, frame sizes, timing — never content. README states it plainly; self-host = same binary (`docker run rvmp/relay`).
 - **Pairing:** the access link *is* the credential — `https://relay.codegent.io/d/<deviceID>#k=<key>` (fragment never reaches the server), trust-on-first-use. Settings lists paired browsers with **per-device revoke**; new-device pairing triggers a **confirmation notification** on already-paired surfaces; **rotate link** kills all old links. Frames use `crypto_secretstream` per direction (replay/reorder protection). On a shared LAN, traffic goes **LAN-direct** (relay brokers discovery only). No accounts in v1.
 - **Hosted relay:** free, unlimited, no registration (locked). No public "forever" promises in messaging — self-host parity (same binary) is the stated guarantee. Protocol reserves a policy frame (rate/conn caps) so limits could ship later without breaking clients — defaults unlimited.
 - **cloudflared option:** daemon already serves HTTP; setup writes a config for users who prefer their own tunnel.
@@ -250,7 +250,7 @@ One click each, no dialogs, no error text shown anywhere (principle 1).
 - **Web Push (VAPID):** payloads use standard Web Push encryption and carry **no content** (principle 1) — only project, task title, kind, elapsed. Sent by the daemon directly to browser push services (never through the relay), so pushes survive relay outages.
 - **Push types (only three):** waiting-for-input (question/permission — never silent), error, review-ready. Per-card notifications update in place, never stack. A "relay connection lost" push after a 2-minute grace. Reconnect sends one digest ("missed: 1 review ready, 1 question"). Nothing else pushes — no "running" spam.
 - **Permission ask is contextual:** the first time any card enters Waiting, the strip shows a one-time "enable notifications" chip. Never a modal on load.
-- **In-app:** toasts for merges and completed background actions; unread dots (rail rows, pane tabs); tab title badge `(n) codegent`; no sounds in v1.
+- **In-app:** toasts for merges and completed background actions; unread dots (rail rows, pane tabs); tab title badge `(n) rvmp`; no sounds in v1.
 
 ## 12. Plugins
 
@@ -258,7 +258,7 @@ A first-class, **strong** extension system — modeled on what compounds at scal
 
 - **Kinds (v1, ships v0.4):** (a) **agent adapters** — declarative TOML manifest (binary + wrapper-unwrap hints, state-detection rules per §6's universal tier: OSC/title glyphs, blocked patterns; optional hooks wiring, badge color) + optional JS module for custom lifecycle mapping; manifests are remote-updatable and locally overridable (herdr model); the community adds agents without core PRs; (b) **event hooks / automations** — subscribe to the daemon's versioned event stream (card transitions, sessions, merges) and react via shell command or webhook; (c) **palette commands**.
 - **v1.1 kinds:** UI panes (terminal-adjacent panels, herdr-style) and themes.
-- **Distribution:** `codegent plugin install gh:user/repo`; the `codegent-plugin` GitHub topic is the zero-review registry, mirrored on a docs-site plugins page. Install = trust (oh-my-zsh model), stated plainly; plugins run in-daemon.
+- **Distribution:** `rvmp plugin install gh:user/repo`; the `rvmp-plugin` GitHub topic is the zero-review registry, mirrored on a docs-site plugins page. Install = trust (oh-my-zsh model), stated plainly; plugins run in-daemon.
 - **Stability contract:** the event schema and adapter manifest format are versioned with a compatibility guarantee from v1.
 
 ## 13. Mobile (phase 2 — starts immediately after desktop v1.0)
@@ -267,14 +267,14 @@ Deliberately sequenced after the desktop scope is complete; the design exists an
 
 ## 14. Install & distribution
 
-**Front door — zero commitment:** `npx codegent-cli` runs the daemon in the foreground with no service, no PATH changes — the README's first command. (npm package name is `codegent-cli` — the unscoped `codegent` is taken by an unrelated same-category package; the package's `bin` still installs the on-PATH command as `codegent`, so `codegent …` subcommands are unchanged. Primary install remains `curl … | sh`.) Making it permanent:
+**Front door — zero commitment:** `npx rvmp-cli` runs the daemon in the foreground with no service, no PATH changes — the README's first command. (npm package name is `rvmp-cli` — the unscoped `rvmp` is taken by an unrelated same-category package; the package's `bin` still installs the on-PATH command as `rvmp`, so `rvmp …` subcommands are unchanged. Primary install remains `curl … | sh`.) Making it permanent:
 
 ```
 curl -fsSL https://codegent.io/install | sh
 ```
-Zero questions: detect OS/arch → install binary to `~/.codegent/bin` → PATH → install user service (launchd/systemd; `--no-service` opt-out) → print + auto-open `http://localhost:4666` (default port 4666, auto-increments if busy) → everything else happens in the browser first-run (§8). WSL = same script. (Install is deliberately ONE clean `sh` path — no brew/package-manager sprawl; decision 2026-07-20.) **No Docker anywhere in the daemon install** — Docker exists only for the relay server (so the hosted relay can move from GCP to any VM provider trivially). **Always-on recipe (first-class docs):** the SAME one-liner `curl … | sh` on any $5 VPS or home server installs the native service — agents run on the real machine (YOLO included) — then `codegent link` QR pairs it; agents keep working with the laptop closed. First-run shows a one-line pointer to the guide.
+Zero questions: detect OS/arch → install binary to `~/.rvmp/bin` → PATH → install user service (launchd/systemd; `--no-service` opt-out) → print + auto-open `http://localhost:4666` (default port 4666, auto-increments if busy) → everything else happens in the browser first-run (§8). WSL = same script. (Install is deliberately ONE clean `sh` path — no brew/package-manager sprawl; decision 2026-07-20.) **No Docker anywhere in the daemon install** — Docker exists only for the relay server (so the hosted relay can move from GCP to any VM provider trivially). **Always-on recipe (first-class docs):** the SAME one-liner `curl … | sh` on any $5 VPS or home server installs the native service — agents run on the real machine (YOLO included) — then `rvmp link` QR pairs it; agents keep working with the laptop closed. First-run shows a one-line pointer to the guide.
 
-**CLI:** `codegent` (start + open), `codegent link [rotate]`, `codegent pair list|revoke`, `codegent service enable|disable`, `codegent task add "…"`, `codegent doctor`, `codegent update` (self-update; prompts when sessions active).
+**CLI:** `rvmp` (start + open), `rvmp link [rotate]`, `rvmp pair list|revoke`, `rvmp service enable|disable`, `rvmp task add "…"`, `rvmp doctor`, `rvmp update` (self-update; prompts when sessions active).
 
 ## 15. Testing strategy
 
@@ -287,12 +287,12 @@ Zero questions: detect OS/arch → install binary to `~/.codegent/bin` → PATH 
 
 ## 16. Milestones & launch
 
-> **Execution mapping:** each milestone ships via a dedicated implementation plan under `docs/superpowers/plans/` — Plan 1 = v0.1 (core, written: `2026-07-19-codegent-v01-core.md`), Plan 2 = v0.2 (orchestration + adapters), Plan 3 = v0.3 (relay + review + install), Plan 4 = v0.4→v1.0 (plugins + polish + launch). Mobile (§13) gets its own plan post-launch (v1.1). Plans 2–4 are written just-in-time, folding in learnings from the previous plan's execution.
+> **Execution mapping:** each milestone ships via a dedicated implementation plan under `docs/superpowers/plans/` — Plan 1 = v0.1 (core, written: `2026-07-19-rvmp-v01-core.md`), Plan 2 = v0.2 (orchestration + adapters), Plan 3 = v0.3 (relay + review + install), Plan 4 = v0.4→v1.0 (plugins + polish + launch). Mobile (§13) gets its own plan post-launch (v1.1). Plans 2–4 are written just-in-time, folding in learnings from the previous plan's execution.
 
 - **v0.1:** daemon+UI localhost; terminal + worktrees + board manual mode (no orchestration).
 - **v0.2:** orchestrator + Claude Code adapter end-to-end; completion truth table; error/recovery actions. Codex adapter.
-- **v0.3:** relay + pairing (device confirm/revoke, signed UI manifest) + Web Push; review queue incl. stale cascade; **universal terminal-state tier** (process-tree + OSC classification + manifest patterns, §6); installer + `npx codegent-cli`; Settings + first-run.
-- **v0.4:** **plugin system core** (adapter manifests, event hooks, `codegent plugin install`, topic registry) + polish pass — Motion animations, empty states, event log, docs site (incl. the always-on VPS guide).
+- **v0.3:** relay + pairing (device confirm/revoke, signed UI manifest) + Web Push; review queue incl. stale cascade; **universal terminal-state tier** (process-tree + OSC classification + manifest patterns, §6); installer + `npx rvmp-cli`; Settings + first-run.
+- **v0.4:** **plugin system core** (adapter manifests, event hooks, `rvmp plugin install`, topic registry) + polish pass — Motion animations, empty states, event log, docs site (incl. the always-on VPS guide).
 - **v1.0 launch:** Show HN + X + r/ClaudeAI; README hero GIF (card added remotely → agent starts at home → push → answer in the terminal → merge confetti); honest comparison table incl. a **first-party row** (Claude Remote Control / Codex cloud) and Orca/VK; pinned **native-Windows tracking issue + milestone** in the README; Discord; weekly changelog with GIFs.
 - **v1.1 (immediately after launch):** **Mobile phase** (§13) + review round-2 niceties + plugin panes/themes.
 
@@ -305,7 +305,7 @@ Zero questions: detect OS/arch → install binary to `~/.codegent/bin` → PATH 
 6. Machine switcher (multiple paired daemons in one UI)
 7. SSH/remote worktree targets
 8. File previews (markdown/image/PDF) and drag-drop files into the agent prompt
-9. `codegent` CLI automation surface (agents driving codegent programmatically, like Orca's CLI)
+9. `rvmp` CLI automation surface (agents driving rvmp programmatically, like Orca's CLI)
 10. detached session hosts (PTYs survive daemon updates) · signed UI builds + SRI · native Windows · light theme · computer use
 
 **Deferred / cut from v1 (explicit):** trigger-based automation system (entire area — future spec) · fan-out N-agent compare (schema reserved) · machine switcher (one machine per link) · GitHub/Linear import · Design-Mode browser proxy · SSH targets · account usage tracking · parallel attempts UI · full PR-checks panel (read-only chip ships in v1) · preempt/pause · non-git folders · accounts · light theme · native Windows · agent conflict-resolution loop (v1 resolves conflicts in the terminal) · push types beyond waiting/error/review.

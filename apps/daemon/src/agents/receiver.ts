@@ -46,7 +46,7 @@ function agentsDir(dataDir: string): string {
  */
 export function writeEndpointFile(dataDir: string, port: number, token: string): string {
   const file = join(agentsDir(dataDir), "endpoint.env");
-  writeAtomic(file, `CODEGENT_HOOK_PORT=${port}\nCODEGENT_HOOK_TOKEN=${token}\n`, 0o600);
+  writeAtomic(file, `RVMP_HOOK_PORT=${port}\nRVMP_HOOK_TOKEN=${token}\n`, 0o600);
   return file;
 }
 
@@ -56,7 +56,7 @@ export function writeEndpointFile(dataDir: string, port: number, token: string):
  * Fail-open is the contract: 0.5s connect / 1.5s total curl budgets
  * (Orca-proven — keep exact), output discarded, and ALWAYS `exit 0`; a dead
  * daemon must never break or stall the agent's own hook execution.
- * Pane identity: `CODEGENT_SESSION_ID` (injected at spawn, per-pane) travels
+ * Pane identity: `RVMP_SESSION_ID` (injected at spawn, per-pane) travels
  * as a request header; port/token come from the endpoint file with the
  * spawn-time env as fallback.
  */
@@ -65,15 +65,15 @@ export function writeHookScript(dataDir: string): string {
   const path = join(dir, "hook.sh");
   const endpoint = join(dir, "endpoint.env");
   writeAtomic(path, `#!/bin/sh
-# codegent hook forwarder — fail-open: never block or fail the agent.
+# rvmp hook forwarder — fail-open: never block or fail the agent.
 # Endpoint file first (survives daemon restarts), spawn-time env as fallback.
 [ -r "${endpoint}" ] && . "${endpoint}"
-[ -n "$CODEGENT_HOOK_PORT" ] && [ -n "$CODEGENT_HOOK_TOKEN" ] || exit 0
+[ -n "$RVMP_HOOK_PORT" ] && [ -n "$RVMP_HOOK_TOKEN" ] || exit 0
 curl -s --connect-timeout 0.5 --max-time 1.5 \\
-  -H "x-codegent-hook-token: $CODEGENT_HOOK_TOKEN" \\
-  -H "x-codegent-session-id: $CODEGENT_SESSION_ID" \\
+  -H "x-rvmp-hook-token: $RVMP_HOOK_TOKEN" \\
+  -H "x-rvmp-session-id: $RVMP_SESSION_ID" \\
   -H "content-type: application/json" \\
-  -d @- "http://127.0.0.1:$CODEGENT_HOOK_PORT/hook/$1" >/dev/null 2>&1
+  -d @- "http://127.0.0.1:$RVMP_HOOK_PORT/hook/$1" >/dev/null 2>&1
 exit 0
 `, 0o755);
   return path;
@@ -99,7 +99,7 @@ export function startHookReceiver(deps: {
 
   const handle = async (req: Request): Promise<Response> => {
     const url = new URL(req.url);
-    if (req.headers.get("x-codegent-hook-token") !== token) return json({ error: "unauthorized" }, 401);
+    if (req.headers.get("x-rvmp-hook-token") !== token) return json({ error: "unauthorized" }, 401);
     const raw = new Uint8Array(await req.arrayBuffer());
     if (raw.byteLength > HOOK_BODY_CAP) return json({ error: "body too large" }, 413);
 
@@ -134,10 +134,10 @@ export function startHookReceiver(deps: {
     } catch {}
     if (parsed) {
       // Pane identity: header primary (set by the hook script from its env);
-      // a CODEGENT_SESSION_ID field inside the payload honored as fallback.
-      const field = (event as Record<string, unknown> | null)?.CODEGENT_SESSION_ID;
+      // a RVMP_SESSION_ID field inside the payload honored as fallback.
+      const field = (event as Record<string, unknown> | null)?.RVMP_SESSION_ID;
       const sessionId =
-        req.headers.get("x-codegent-session-id") || (typeof field === "string" ? field : null);
+        req.headers.get("x-rvmp-session-id") || (typeof field === "string" ? field : null);
       const delivery: HookDelivery = { agent: m[1]!, sessionId: sessionId || null, event };
       for (const cb of subs) {
         try {

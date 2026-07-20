@@ -10,22 +10,22 @@ import { resolveWebDist } from "../src/http/server";
 
 describe("resolveWebDist", () => {
   test("env override wins unconditionally", () => {
-    process.env.CODEGENT_WEB_DIST = "/custom/web";
+    process.env.RVMP_WEB_DIST = "/custom/web";
     try {
-      expect(resolveWebDist("/whatever/bin/codegent")).toBe("/custom/web");
+      expect(resolveWebDist("/whatever/bin/rvmp")).toBe("/custom/web");
     } finally {
-      delete process.env.CODEGENT_WEB_DIST;
+      delete process.env.RVMP_WEB_DIST;
     }
   });
   test("packaged layout: share/web beside the binary wins when it exists", () => {
     const pkg = mkdtempSync(join(tmpdir(), "cg-pkg-"));
     mkdirSync(join(pkg, "share", "web"), { recursive: true });
     mkdirSync(join(pkg, "bin"), { recursive: true });
-    expect(resolveWebDist(join(pkg, "bin", "codegent"))).toBe(join(pkg, "share", "web")); // join() normalizes
+    expect(resolveWebDist(join(pkg, "bin", "rvmp"))).toBe(join(pkg, "share", "web")); // join() normalizes
     rmSync(pkg, { recursive: true, force: true });
   });
   test("dev fallback: monorepo web/dist path derived from the source dir", () => {
-    const got = resolveWebDist("/nonexistent/bin/codegent", "/repo/apps/daemon/src/http");
+    const got = resolveWebDist("/nonexistent/bin/rvmp", "/repo/apps/daemon/src/http");
     expect(got).toBe("/repo/apps/web/dist"); // join() normalizes the ../ hops
   });
 });
@@ -40,11 +40,11 @@ describe("install.sh", () => {
     return { code: p.exitCode, out: p.stdout.toString() + p.stderr.toString() };
   };
   test("dry-run prints the full plan without touching the system", () => {
-    const r = sh(["--dry-run"], { CODEGENT_DOWNLOAD_BASE: "https://example.test/rel" });
+    const r = sh(["--dry-run"], { RVMP_DOWNLOAD_BASE: "https://example.test/rel" });
     expect(r.code).toBe(0);
-    expect(r.out).toContain("https://example.test/rel/codegent-");
-    expect(r.out).toContain(".codegent/bin");
-    expect(r.out).toContain("codegent service enable");
+    expect(r.out).toContain("https://example.test/rel/rvmp-");
+    expect(r.out).toContain(".rvmp/bin");
+    expect(r.out).toContain("rvmp service enable");
   });
   test("--no-service is honored; unknown flags reject", () => {
     expect(sh(["--dry-run", "--no-service"]).out).toContain("skipped (--no-service)");

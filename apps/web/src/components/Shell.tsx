@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Project } from "@codegent/protocol";
+import type { Project } from "@rvmp/protocol";
 import { api, connectWs, type CgSocket, type WsState } from "../api";
 import { bindKeys } from "../keys";
 import { reduceCardNotices, type CardNoticeState } from "../projection";

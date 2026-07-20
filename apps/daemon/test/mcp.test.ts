@@ -9,7 +9,7 @@ import { createAttempt, createDispatch, completeDispatch, pendingComplete } from
 import { listTimeline } from "../src/store/timeline";
 import { startHookReceiver } from "../src/agents/receiver";
 import { events } from "../src/events";
-import type { Card, DomainEvent, Project } from "@codegent/protocol";
+import type { Card, DomainEvent, Project } from "@rvmp/protocol";
 
 const ENTRY = join(import.meta.dir, "../src/agents/mcp-entry.ts");
 
@@ -85,7 +85,7 @@ const db = openDb(":memory:");
 const dataDir = mkdtempSync(join(tmpdir(), "cg-mcp-"));
 const rx = startHookReceiver({ dataDir, db });
 const api = `http://127.0.0.1:${rx.port}/api/agent`;
-const H = { headers: { "x-codegent-hook-token": rx.token, "content-type": "application/json" } };
+const H = { headers: { "x-rvmp-hook-token": rx.token, "content-type": "application/json" } };
 
 let project: Project;
 let cardClean: Card, cardDirty: Card;
@@ -145,10 +145,10 @@ beforeAll(async () => {
   domainEvents.length = 0; // seeding is not under test
 
   sidecar = spawnSidecar({
-    CODEGENT_HOOK_PORT: String(rx.port),
-    CODEGENT_HOOK_TOKEN: rx.token,
-    CODEGENT_CARD_ID: String(cardClean.id),
-    CODEGENT_DISPATCH_ID: dispatchClean,
+    RVMP_HOOK_PORT: String(rx.port),
+    RVMP_HOOK_TOKEN: rx.token,
+    RVMP_CARD_ID: String(cardClean.id),
+    RVMP_DISPATCH_ID: dispatchClean,
   });
 }, 30_000);
 
@@ -162,7 +162,7 @@ afterAll(async () => {
 
 test("sidecar handshake + tools/list: EXACTLY the three task tools (spec §6)", async () => {
   const init = await handshake(sidecar);
-  expect(init.serverInfo.name).toBe("codegent");
+  expect(init.serverInfo.name).toBe("rvmp");
   const list = await sidecar.request("tools/list", {});
   const names = list.result.tools.map((t: any) => t.name).sort();
   expect(names).toEqual(["task_complete", "task_get", "task_progress"]); // no task_ask_user, nothing else
@@ -199,10 +199,10 @@ test("task_progress appends a timeline row and touches the dispatch heartbeat", 
 
 test("task_complete on a DIRTY worktree → MCP tool error carrying the porcelain (agent-only echo)", async () => {
   const dirty = spawnSidecar({
-    CODEGENT_HOOK_PORT: String(rx.port),
-    CODEGENT_HOOK_TOKEN: rx.token,
-    CODEGENT_CARD_ID: String(cardDirty.id),
-    CODEGENT_DISPATCH_ID: dispatchDirty,
+    RVMP_HOOK_PORT: String(rx.port),
+    RVMP_HOOK_TOKEN: rx.token,
+    RVMP_CARD_ID: String(cardDirty.id),
+    RVMP_DISPATCH_ID: dispatchDirty,
   });
   try {
     await handshake(dirty);
@@ -230,10 +230,10 @@ test("task_complete fails closed when its worktree is missing, non-repository, o
   ];
   for (const fixture of fixtures) {
     const client = spawnSidecar({
-      CODEGENT_HOOK_PORT: String(rx.port),
-      CODEGENT_HOOK_TOKEN: rx.token,
-      CODEGENT_CARD_ID: String(fixture.card.id),
-      CODEGENT_DISPATCH_ID: fixture.dispatch,
+      RVMP_HOOK_PORT: String(rx.port),
+      RVMP_HOOK_TOKEN: rx.token,
+      RVMP_CARD_ID: String(fixture.card.id),
+      RVMP_DISPATCH_ID: fixture.dispatch,
     });
     try {
       await handshake(client);

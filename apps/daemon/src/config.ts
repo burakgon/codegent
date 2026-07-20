@@ -6,7 +6,7 @@ const PORT_BASE = 4666;
 const PORT_MAX = 4766; // exclusive
 
 /**
- * Daemon config: data dir (`~/.codegent`, override `CODEGENT_DATA_DIR`),
+ * Daemon config: data dir (`~/.rvmp`, override `RVMP_DATA_DIR`),
  * a persisted 32-hex auth token at `<dataDir>/token`, and the first free
  * port from 4666 upward. The probe binds with `Bun.listen` (throws
  * EADDRINUSE synchronously when busy) and releases via `stop()` right
@@ -17,7 +17,7 @@ const PORT_MAX = 4766; // exclusive
  * written by the hook receiver; T7 adds per-dispatch config dirs).
  */
 export function loadConfig(): { port: number; dataDir: string; token: string } {
-  const dataDir = process.env.CODEGENT_DATA_DIR ?? join(homedir(), ".codegent");
+  const dataDir = process.env.RVMP_DATA_DIR ?? join(homedir(), ".rvmp");
   mkdirSync(dataDir, { recursive: true });
   mkdirSync(join(dataDir, "agents"), { recursive: true, mode: 0o700 });
   const tokenPath = join(dataDir, "token");

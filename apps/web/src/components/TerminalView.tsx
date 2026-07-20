@@ -1,6 +1,6 @@
 import React, { useContext, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Card, Project, SessionMeta, Worktree } from "@codegent/protocol";
+import type { Card, Project, SessionMeta, Worktree } from "@rvmp/protocol";
 import { api } from "../api";
 import { railSessionEntries } from "../projection";
 import { AppCtx } from "./Shell";

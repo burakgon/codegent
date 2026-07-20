@@ -1,16 +1,16 @@
 {
-  "name": "codegent-cli",
-  "version": "1.0.0",
-  "description": "codegent \u2014 self-hosted coding-agent orchestrator (CLI launcher)",
+  "name": "rvmp",
+  "version": "1.0.1",
+  "description": "rvmp \u2014 self-hosted coding-agent orchestrator (CLI launcher)",
   "license": "AGPL-3.0-only",
   "bin": {
-    "codegent": "bin/codegent.js"
+    "rvmp": "bin/rvmp.js"
   },
   "files": [
     "bin"
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/burakgon/codegent"
+    "url": "https://github.com/burakgon/rvmp"
   }
 }

@@ -1,5 +1,5 @@
 {
-  "name": "@codegent/web",
+  "name": "@rvmp/web",
   "version": "0.0.1",
   "type": "module",
   "scripts": {
@@ -8,7 +8,7 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json"
   },
   "dependencies": {
-    "@codegent/protocol": "workspace:*",
+    "@rvmp/protocol": "workspace:*",
     "ghostty-web": "workspace:*",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

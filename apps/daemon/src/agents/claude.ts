@@ -92,7 +92,7 @@ export class ClaudeAdapter implements AgentAdapter {
     // env filtering claude applies to its children. The id is the dispatch id —
     // known before the PTY exists, unique per agent pane.
     const sid = ctx.dispatch.id;
-    const command = `CODEGENT_SESSION_ID=${shq(sid)} ${shq(hookScript)} claude`;
+    const command = `RVMP_SESSION_ID=${shq(sid)} ${shq(hookScript)} claude`;
     const hook = { hooks: [{ type: "command", command }] };
     const settingsPath = join(dir, "settings.json");
     writePrivate(
@@ -124,14 +124,14 @@ export class ClaudeAdapter implements AgentAdapter {
       JSON.stringify(
         {
           mcpServers: {
-            codegent: {
+            rvmp: {
               command: "bun",
               args: [join(import.meta.dir, "mcp-entry.ts")],
               env: {
-                CODEGENT_HOOK_PORT: String(hookPort),
-                CODEGENT_HOOK_TOKEN: hookToken,
-                CODEGENT_CARD_ID: String(ctx.card.id),
-                CODEGENT_DISPATCH_ID: ctx.dispatch.id,
+                RVMP_HOOK_PORT: String(hookPort),
+                RVMP_HOOK_TOKEN: hookToken,
+                RVMP_CARD_ID: String(ctx.card.id),
+                RVMP_DISPATCH_ID: ctx.dispatch.id,
               },
             },
           },
@@ -162,7 +162,7 @@ export class ClaudeAdapter implements AgentAdapter {
     ];
 
     // scrubAgentEnv drops CLAUDE* (leaked nested-CC markers silently disable
-    // transcript persistence and break --resume) and pins TERM; CODEGENT_*
+    // transcript persistence and break --resume) and pins TERM; RVMP_*
     // rides on top for the hook script's env fallback path.
     const meta = ptys.open({
       projectId: ctx.project.id,
@@ -173,9 +173,9 @@ export class ClaudeAdapter implements AgentAdapter {
       cmd,
       env: {
         ...scrubAgentEnv(process.env),
-        CODEGENT_HOOK_PORT: String(hookPort),
-        CODEGENT_HOOK_TOKEN: hookToken,
-        CODEGENT_SESSION_ID: sid,
+        RVMP_HOOK_PORT: String(hookPort),
+        RVMP_HOOK_TOKEN: hookToken,
+        RVMP_SESSION_ID: sid,
       },
       attemptId: ctx.attempt.id,
     });

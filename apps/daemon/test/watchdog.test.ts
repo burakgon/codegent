@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { DomainEvent } from "@codegent/protocol";
+import type { DomainEvent } from "@rvmp/protocol";
 import { Watchdog } from "../src/orchestrator/watchdog";
 
 describe("manual override detection watchdog", () => {

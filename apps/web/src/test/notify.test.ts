@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Card } from "@codegent/protocol";
+import type { Card } from "@rvmp/protocol";
 import { attentionLabel, attentionOf, createNotifier } from "../notify";
 
 const card = (over: Partial<Card>): Card => ({

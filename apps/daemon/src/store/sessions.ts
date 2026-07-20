@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import type { SessionMeta } from "@codegent/protocol";
+import type { SessionMeta } from "@rvmp/protocol";
 
 const rowToMeta = (r: any): SessionMeta => ({
   id: r.id, projectId: r.project_id, kind: r.kind, title: r.title,

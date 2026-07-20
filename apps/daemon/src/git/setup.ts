@@ -1,7 +1,7 @@
 import { cpSync, lstatSync, mkdirSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
-import type { Project, Worktree } from "@codegent/protocol";
+import type { Project, Worktree } from "@rvmp/protocol";
 
 // §8 worktree bootstrap (Part 4): a fresh worktree without .env/node_modules
 // is unusable — before the agent spawns, [1] copy-globs bring untracked
@@ -19,7 +19,7 @@ export class WorktreeSetupError extends Error {
 }
 
 /** Copy files matching the project's copy-globs from the main checkout into
- * the worktree (paths preserved, parents created). `.git`/`.codegent` never
+ * the worktree (paths preserved, parents created). `.git`/`.rvmp` never
  * cross. Returns the copied relative paths (tests + log). */
 export function copyGlobsInto(project: Pick<Project, "path" | "copyGlobs">, wtPath: string): string[] {
   const copied: string[] = [];
@@ -28,7 +28,7 @@ export function copyGlobsInto(project: Pick<Project, "path" | "copyGlobs">, wtPa
   for (const pattern of project.copyGlobs) {
     const glob = new Bun.Glob(pattern);
     for (const rel of glob.scanSync({ cwd: project.path, dot: true, onlyFiles: true })) {
-      if (rel.startsWith(".git/") || rel.startsWith(".codegent/") || rel === ".git") continue;
+      if (rel.startsWith(".git/") || rel.startsWith(".rvmp/") || rel === ".git") continue;
       const src = resolve(project.path, rel);
       const dst = resolve(wtPath, rel);
       // Containment (review A-Imp): a `../…` glob match or an escaping
@@ -71,7 +71,7 @@ export async function runSetupScript(
   const proc = Bun.spawn({
     cmd: [shell, "-lc", script],
     cwd: wt.path,
-    env: { ...process.env, CODEGENT_WORKTREE: wt.path },
+    env: { ...process.env, RVMP_WORKTREE: wt.path },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -99,7 +99,7 @@ export async function runSetupScript(
 export async function bootstrapWorktree(
   project: Pick<Project, "path" | "copyGlobs" | "setupScript">,
   wt: Pick<Worktree, "id" | "path">,
-  logDir = join(tmpdir(), "codegent-setup-logs"),
+  logDir = join(tmpdir(), "rvmp-setup-logs"),
 ): Promise<{ copied: string[] }> {
   const copied = copyGlobsInto(project, wt.path);
   await runSetupScript(project, wt, logDir);

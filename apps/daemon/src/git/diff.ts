@@ -1,4 +1,4 @@
-import type { DiffFile, DiffFileStatus, DiffHunk, DiffPayload, DiffSummary } from "@codegent/protocol";
+import type { DiffFile, DiffFileStatus, DiffHunk, DiffPayload, DiffSummary } from "@rvmp/protocol";
 
 // Structured worktree diff for the review surface (spec §7.5). Everything is
 // computed on demand from git — no cache (the v0.2 `compute-diffstat` effect
