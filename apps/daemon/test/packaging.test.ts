@@ -21,12 +21,12 @@ describe("resolveWebDist", () => {
     const pkg = mkdtempSync(join(tmpdir(), "cg-pkg-"));
     mkdirSync(join(pkg, "share", "web"), { recursive: true });
     mkdirSync(join(pkg, "bin"), { recursive: true });
-    expect(resolveWebDist(join(pkg, "bin", "codegent"))).toBe(join(pkg, "bin", "..", "..", "share", "web"));
+    expect(resolveWebDist(join(pkg, "bin", "codegent"))).toBe(join(pkg, "share", "web")); // join() normalizes
     rmSync(pkg, { recursive: true, force: true });
   });
   test("dev fallback: monorepo web/dist path derived from the source dir", () => {
     const got = resolveWebDist("/nonexistent/bin/codegent", "/repo/apps/daemon/src/http");
-    expect(got).toBe("/repo/apps/daemon/src/http/../../../web/dist");
+    expect(got).toBe("/repo/apps/web/dist"); // join() normalizes the ../ hops
   });
 });
 
