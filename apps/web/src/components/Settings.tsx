@@ -189,7 +189,7 @@ export function ActivityLog({ projectId }: { projectId: string }) {
   const now = Date.now();
   return (
     <div data-activity-log>
-      <input value={cardFilter} onChange={e => setCardFilter(e.target.value.replace(/[^0-9]/g, ""))}
+      <input name="activity-card-filter" value={cardFilter} onChange={e => setCardFilter(e.target.value.replace(/[^0-9]/g, ""))}
         placeholder="filter by card id"
         style={{ width: 130, marginBottom: 8, padding: "4px 8px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg)", color: "var(--text)", font: "inherit", fontSize: 10, outline: "none" }} />
       <div style={{ maxHeight: 220, overflow: "auto" }}>

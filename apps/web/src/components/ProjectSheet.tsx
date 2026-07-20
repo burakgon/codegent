@@ -86,11 +86,11 @@ export function ProjectSheet({ onDone, onClose }: { onDone: (project: Project) =
       {tab === "clone" && (
         <>
           <div style={label}>Repository URL</div>
-          <input value={cloneUrl} onChange={e => setCloneUrl(e.target.value)} placeholder="https://github.com/you/repo.git" style={field} />
+          <input name="clone-url" value={cloneUrl} onChange={e => setCloneUrl(e.target.value)} placeholder="https://github.com/you/repo.git" style={field} />
         </>
       )}
       <div style={label}>{tab === "clone" ? "Clone into" : "Path"}</div>
-      <input value={path} onChange={e => { setPath(e.target.value); setCanInit(false); }}
+      <input name="project-path" value={path} onChange={e => { setPath(e.target.value); setCanInit(false); }}
         placeholder={tab === "clone" ? "~/code/repo (created by the clone)" : "~/code/your-repo"}
         onKeyDown={e => { if (e.key === "Enter" && path.trim()) void submit(); }} style={field} />
       {suggest.length > 0 && tab === "path" && (
@@ -105,7 +105,7 @@ export function ProjectSheet({ onDone, onClose }: { onDone: (project: Project) =
       <div style={{ display: "flex", gap: 10 }}>
         <div style={{ flex: 1 }}>
           <div style={label}>Base branch</div>
-          <input value={baseBranch} onChange={e => setBaseBranch(e.target.value)} placeholder="auto (origin/HEAD)" style={field} />
+          <input name="base-branch" value={baseBranch} onChange={e => setBaseBranch(e.target.value)} placeholder="auto (origin/HEAD)" style={field} />
         </div>
         <div>
           <div style={label}>Default agent</div>
@@ -126,10 +126,10 @@ export function ProjectSheet({ onDone, onClose }: { onDone: (project: Project) =
       </div>
 
       <div style={label}>Worktree setup script (runs in every fresh worktree)</div>
-      <textarea value={setupScript} onChange={e => setSetupScript(e.target.value)} rows={2}
+      <textarea name="setup-script" value={setupScript} onChange={e => setSetupScript(e.target.value)} rows={2}
         placeholder="bun install" style={{ ...field, resize: "vertical", fontFamily: "var(--font-mono)" }} />
       <div style={label}>Copy into worktrees (comma-separated globs)</div>
-      <input value={copyGlobs} onChange={e => setCopyGlobs(e.target.value)} placeholder=".env, .env.local" style={{ ...field, fontFamily: "var(--font-mono)" }} />
+      <input name="copy-globs" value={copyGlobs} onChange={e => setCopyGlobs(e.target.value)} placeholder=".env, .env.local" style={{ ...field, fontFamily: "var(--font-mono)" }} />
 
       {err && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, color: "var(--red)", fontSize: 11 }}>

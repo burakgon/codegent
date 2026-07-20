@@ -213,7 +213,7 @@ function Composer({ onCreate, defaultAgent = "claude" }: { onCreate: (title: str
   );
   return (
     <div style={{ padding: "10px 11px", border: "1px dashed var(--border)", borderRadius: 8 }}>
-      <input autoFocus value={title} onChange={event => setTitle(event.target.value)} placeholder="What should be done?"
+      <input autoFocus name="card-title" value={title} onChange={event => setTitle(event.target.value)} placeholder="What should be done?"
         onKeyDown={event => {
           if (event.key === "Enter" && title.trim()) { onCreate(title.trim(), agent); setTitle(""); setOpen(false); }
           if (event.key === "Escape") setOpen(false);

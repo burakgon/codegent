@@ -149,7 +149,7 @@ function CommentRow({ comment, readOnly, onEdit, onDelete }: {
           )}
         </>
       ) : (
-        <input autoFocus value={editing} onChange={e => setEditing(e.target.value)}
+        <input autoFocus name="edit-comment" value={editing} onChange={e => setEditing(e.target.value)}
           onKeyDown={e => {
             if (e.key === "Enter") { onEdit(comment.id, editing); setEditing(null); }
             if (e.key === "Escape") setEditing(null);
@@ -228,7 +228,7 @@ export function HunkList({ file, anchorId, mode = "unified", comments = [], read
                   </div>
                   {composer?.key === key && (
                     <div style={{ display: "flex", gap: 6, margin: "2px 12px 4px 97px" }}>
-                      <input autoFocus value={draft} onChange={e => setDraft(e.target.value)} placeholder="Queue a comment for this line"
+                      <input autoFocus name="line-comment" value={draft} onChange={e => setDraft(e.target.value)} placeholder="Queue a comment for this line"
                         onKeyDown={e => { if (e.key === "Enter") commit(); if (e.key === "Escape") setComposer(null); }}
                         style={{ flex: 1, padding: "5px 8px", border: "1px solid var(--violet-2)", borderRadius: 6, background: "var(--bg)", color: "var(--text)", font: "inherit", fontSize: 11, outline: "none" }} />
                       <button type="button" onClick={commit} style={btn("var(--violet-2)")}>Queue</button>
@@ -492,7 +492,7 @@ export function DiffView() {
 
       {sendBackOpen && !readOnly && sel.reviewSub === "ready" && (
         <div style={{ display: "flex", gap: 7, padding: "8px 12px", borderBottom: "1px solid var(--surface-2)" }}>
-          <input autoFocus value={sendBackText} onChange={e => setSendBackText(e.target.value)}
+          <input autoFocus name="send-back-note" value={sendBackText} onChange={e => setSendBackText(e.target.value)}
             placeholder="What should change? (sent to the agent)"
             onKeyDown={e => { if (e.key === "Enter") sendBack(); if (e.key === "Escape") setSendBackOpen(false); }}
             style={{ flex: 1, padding: "6px 9px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg)", color: "var(--text)", font: "inherit", fontSize: 11, outline: "none" }} />
