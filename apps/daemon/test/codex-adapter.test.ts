@@ -271,7 +271,7 @@ test("spawn builds the per-dispatch home: user config copied + trust + MCP entry
   if (real !== wt) expect(cfg.projects[real].trust_level).toBe("trusted");
   // MCP sidecar entry with the dispatch envelope (same contract as claude's mcp.json).
   const mcp = cfg.mcp_servers.rvmp;
-  expect(mcp.command).toBe("bun");
+  expect(mcp.command).toBe(process.execPath);
   expect(mcp.args).toHaveLength(1);
   expect(mcp.args[0].endsWith("mcp-entry.ts")).toBe(true);
   expect(existsSync(mcp.args[0])).toBe(true); // the args target must actually exist
@@ -382,7 +382,7 @@ test("a user with no ~/.codex at all still gets a working home (managed block on
   const home = homeOf(dataDir, "d-123");
   const cfg = (Bun as any).TOML.parse(readFileSync(join(home, "config.toml"), "utf8")) as any;
   expect(cfg.projects[wt].trust_level).toBe("trusted");
-  expect(cfg.mcp_servers.rvmp.command).toBe("bun");
+  expect(cfg.mcp_servers.rvmp.command).toBe(process.execPath);
   expect(existsSync(join(home, "auth.json"))).toBe(false); // nothing to copy — codex will show login
   expect(existsSync(join(home, "hooks.json"))).toBe(true);
   expect(lstatSync(join(home, "sessions")).isSymbolicLink()).toBe(true);

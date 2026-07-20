@@ -1,3 +1,4 @@
+import { sidecarSpec } from "./sidecar-spec";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { recordProcessGroup } from "../pty/reap";
@@ -125,8 +126,7 @@ export class ClaudeAdapter implements AgentAdapter {
         {
           mcpServers: {
             rvmp: {
-              command: "bun",
-              args: [join(import.meta.dir, "mcp-entry.ts")],
+              ...sidecarSpec(),
               env: {
                 RVMP_HOOK_PORT: String(hookPort),
                 RVMP_HOOK_TOKEN: hookToken,

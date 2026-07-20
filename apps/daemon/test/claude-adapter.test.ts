@@ -215,7 +215,7 @@ test("spawn writes mcp.json wiring the sidecar with the dispatch envelope", asyn
   expect(mcp).toEqual({
     mcpServers: {
       rvmp: {
-        command: "bun",
+        command: process.execPath,
         args: [entry],
         env: {
           RVMP_HOOK_PORT: String(HOOK_PORT),

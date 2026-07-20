@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import pkg from "../package.json";
 import { AGENT_REGISTRY } from "./detect/agent-registry";
+import { sidecarSpec } from "./agents/sidecar-spec";
 import { disableService, enableService, serviceStatus, type ServiceDeps } from "./service";
 
 // The `rvmp` command (spec §14, local-only): start (+open), doctor,
@@ -20,6 +21,7 @@ export type Parsed =
   | { cmd: "task-add"; title: string; project: string | null }
   | { cmd: "service"; action: "enable" | "disable" | "status" }
   | { cmd: "update" }
+  | { cmd: "mcp-sidecar" }
   | { cmd: "version" }
   | { cmd: "help" }
   | { cmd: "error"; message: string };
@@ -33,6 +35,9 @@ export function parseCli(argv: string[]): Parsed {
   if (head === "help" || head === "--help" || head === "-h") return { cmd: "help" };
   if (head === "doctor") return { cmd: "doctor" };
   if (head === "update") return { cmd: "update" };
+  // Hidden: the compiled binary re-invoked as the per-dispatch MCP sidecar
+  // (sidecar-spec.ts). Not in help — never typed by a human.
+  if (head === "mcp-sidecar") return { cmd: "mcp-sidecar" };
   if (head === "service") {
     const action = rest[0];
     if (action === "enable" || action === "disable" || action === "status") return { cmd: "service", action };
@@ -103,7 +108,44 @@ export async function doctorReport(d?: DoctorDeps): Promise<DoctorRow[]> {
   rows.push({ name: "data dir", ok: writable, detail: `${dataDir}${writable ? "" : " — not writable"}` });
 
   rows.push({ name: "service", ok: true, detail: await serviceStatus(d?.service) });
+
+  rows.push(await mcpSidecarProbe());
   return rows;
+}
+
+/** Live-spawn the MCP sidecar exactly as agent configs will (sidecar-spec) and
+ * complete an initialize round-trip. This is the check that would have caught
+ * the launch-day bug where installed systems generated a sidecar command no
+ * machine could run — cards hung in `working` with nothing to explain why. */
+async function mcpSidecarProbe(): Promise<DoctorRow> {
+  const spec = sidecarSpec();
+  const name = "mcp sidecar";
+  try {
+    const p = Bun.spawn({
+      cmd: [spec.command, ...spec.args],
+      stdin: "pipe", stdout: "pipe", stderr: "ignore",
+      env: {
+        ...process.env,
+        RVMP_HOOK_PORT: "1", RVMP_HOOK_TOKEN: "probe",
+        RVMP_CARD_ID: "0", RVMP_DISPATCH_ID: "doctor-probe",
+      },
+    });
+    p.stdin.write(JSON.stringify({
+      jsonrpc: "2.0", id: 1, method: "initialize",
+      params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "rvmp-doctor", version: "0" } },
+    }) + "\n");
+    await p.stdin.flush();
+    const reader = p.stdout.getReader();
+    const first = await Promise.race([
+      reader.read().then((r) => new TextDecoder().decode(r.value ?? new Uint8Array())),
+      new Promise<null>((res) => setTimeout(() => res(null), 3000)),
+    ]);
+    p.kill();
+    const ok = typeof first === "string" && first.includes('"serverInfo"');
+    return { name, ok, detail: ok ? `${spec.command} ${spec.args.join(" ")}` : "initialize handshake failed — agents cannot report task_complete" };
+  } catch {
+    return { name, ok: false, detail: `cannot spawn: ${spec.command} ${spec.args.join(" ")}` };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -201,6 +243,13 @@ export async function main(argv: string[]): Promise<number> {
     case "update":
       console.log("update rvmp:\n  npm i -g rvmp-cli@latest\n  # or re-run: curl -fsSL https://codegent.io/install | sh");
       return 0;
+    case "mcp-sidecar":
+      // Stdio MCP server for one agent dispatch; the import connects the
+      // transport and the open stdin keeps the process alive until the agent
+      // CLI closes it. Return the no-exit sentinel: calling process.exit here
+      // would tear the server down the instant it connected.
+      await import("./agents/mcp-entry");
+      return -1;
     case "service": {
       const binPath = process.execPath;
       if (parsed.action === "enable" && !/rvmp(\.exe)?$/.test(binPath)) {

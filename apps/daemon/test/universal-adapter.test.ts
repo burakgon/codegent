@@ -260,7 +260,7 @@ test("UniversalAdapter spawns a bare Gemini PTY with isolated MCP config", async
   expect(typeof settingsPath).toBe("string");
   const settings = JSON.parse(readFileSync(settingsPath!, "utf8"));
   expect(settings.mcpServers.rvmp).toMatchObject({
-    command: "bun",
+    command: process.execPath,
     env: {
       RVMP_CARD_ID: "1",
       RVMP_DISPATCH_ID: "dispatch-1",

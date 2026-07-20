@@ -1,3 +1,4 @@
+import { sidecarSpec } from "./sidecar-spec";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { Card } from "@rvmp/protocol";
@@ -109,8 +110,7 @@ interface Launch {
 
 function sidecar(ctx: SpawnCtx, deps: UniversalAdapterDeps): Sidecar {
   return {
-    command: "bun",
-    args: [join(import.meta.dir, "mcp-entry.ts")],
+    ...sidecarSpec(),
     env: {
       RVMP_HOOK_PORT: String(deps.hookPort),
       RVMP_HOOK_TOKEN: deps.hookToken,
@@ -175,7 +175,7 @@ function launchFor(
       };
     case "goose": // Goose accepts a one-session stdio extension command
       return {
-        cmd: ["goose", "session", "--with-extension", `bun ${shq(mcp.args[0]!)}`],
+        cmd: ["goose", "session", "--with-extension", [mcp.command, ...mcp.args].map(shq).join(" ")],
         env,
       };
     case "aider":

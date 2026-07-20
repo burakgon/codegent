@@ -1,3 +1,4 @@
+import { sidecarSpec } from "./sidecar-spec";
 import { existsSync, mkdirSync, readFileSync, realpathSync, symlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
@@ -208,8 +209,8 @@ export class CodexAdapter implements AgentAdapter {
       "# --- managed by rvmp (regenerated at each spawn; edits are overwritten) ---",
       ...[...trustPaths].flatMap((p) => [`[projects.${tomlStr(p)}]`, `trust_level = "trusted"`, ""]),
       "[mcp_servers.rvmp]",
-      `command = "bun"`,
-      `args = [${tomlStr(join(import.meta.dir, "mcp-entry.ts"))}]`,
+      `command = ${tomlStr(sidecarSpec().command)}`,
+      `args = [${sidecarSpec().args.map(tomlStr).join(", ")}]`,
       `default_tools_approval_mode = "approve"`,
       "",
       "[mcp_servers.rvmp.env]",
