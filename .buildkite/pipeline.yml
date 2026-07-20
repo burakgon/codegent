@@ -19,6 +19,7 @@ env:
 steps:
   - label: ":linux: test"
     key: linux
+    if: build.source != "schedule"
     agents: { os: linux }
     command: |
       git submodule update --init
@@ -27,6 +28,7 @@ steps:
 
   - label: ":mac: test"
     key: mac
+    if: build.source != "schedule"
     agents: { os: macos }
     command: |
       git submodule update --init
@@ -40,8 +42,23 @@ steps:
   # the checked-in snapshot apps/web/types/ghostty-web.d.ts.
   - label: ":typescript: typecheck"
     key: typecheck
+    if: build.source != "schedule"
     agents: { os: linux }
     command: |
       git submodule update --init
       bun install --frozen-lockfile
       bun run typecheck
+
+  # Buildkite schedules are pipeline control-plane objects (Settings >
+  # Schedules, or the pipeline-schedules API), not a pipeline.yml key. At
+  # launch, add an @daily schedule on the default branch; build.source is then
+  # "schedule", selecting only this best-effort compatibility alarm.
+  - label: ":claude: nightly agent contract"
+    key: agent-contract-nightly
+    if: build.source == "schedule"
+    agents: { os: linux }
+    soft_fail: true
+    command: |
+      git submodule update --init
+      bun install --frozen-lockfile
+      CODEGENT_CONTRACT_LIVE=1 bun test apps/daemon/test/contract
