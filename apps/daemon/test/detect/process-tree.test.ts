@@ -6,7 +6,9 @@ import {
   AGENT_POLL_UNIDENTIFIED_MS,
   AgentTracker,
   PS_SNAPSHOT_TTL_MS,
+  enrichPsSnapshotAgentLabels,
   foregroundAgent,
+  parseCodegentAgentFromEnviron,
   parsePsSnapshot,
   type PsSnapshot,
   type PsSnapshotRow,
@@ -79,15 +81,27 @@ describe("foregroundAgent", () => {
       "node /opt/lib/node_modules/@openai/codex/dist/cli.js --model gpt-5",
       "codex",
     ],
-    ["bun script", "bun /Users/test/.local/bin/opencode", "opencode"],
-    ["python module", "python3 -m aider.main --model sonnet", "aider"],
-    ["shell command", "/bin/sh -c 'goose session'", "goose"],
-    ["cmd command", 'cmd.exe /D /S /C "amp.cmd"', "amp"],
     [
-      "PowerShell file",
-      'powershell.exe -NoProfile -File "C:\\Users\\test\\Scripts\\claude.ps1"',
+      "Anthropic node package",
+      "node /opt/lib/node_modules/@anthropic-ai/claude-code/cli.js",
       "claude",
     ],
+    [
+      "bun package script",
+      "bun /opt/lib/node_modules/opencode-ai/bin/opencode.js",
+      "opencode",
+    ],
+    ["bun x package runner", "bun x codex", "codex"],
+    ["bunx package runner", "bunx codex", "codex"],
+    ["python module", "python3 -m aider.main --model sonnet", "aider"],
+    [
+      "python package script",
+      "python3 /opt/lib/python3.13/site-packages/aider/main.py --model sonnet",
+      "aider",
+    ],
+    ["shell command", "/bin/sh -c 'goose session'", "goose"],
+    ["cmd command", 'cmd.exe /D /S /C "amp.cmd"', "amp"],
+    ["PowerShell command", 'powershell.exe -NoProfile -Command "claude"', "claude"],
     ["nix wrapped argv0", "/nix/store/hash/bin/.codex-wrapped --model gpt-5", "codex"],
     ["packaged binary prefix", "/opt/codex-aarch64-apple-darwin --model gpt-5", "codex"],
   ])("unwraps %s invocations", (_kind, command, agent) => {
@@ -110,7 +124,23 @@ describe("foregroundAgent", () => {
     expect(foregroundAgent(100, snapshot)).toEqual({ agent: "codex", pid: 110 });
   });
 
-  test("uses a CODEGENT_AGENT environment label before command recognition", () => {
+  test("uses CODEGENT_AGENT when a wrapper hides command identity", () => {
+    const snapshot: PsSnapshot = [
+      shell(),
+      row({
+        pid: 101,
+        ppid: 100,
+        pgid: 101,
+        stat: "S+",
+        command: "sandbox-wrapper",
+        env: { CODEGENT_AGENT: "sandbox-agent" },
+      }),
+    ];
+
+    expect(foregroundAgent(100, snapshot)).toEqual({ agent: "sandbox-agent", pid: 101 });
+  });
+
+  test("uses recognized process evidence before the environment fallback", () => {
     const snapshot: PsSnapshot = [
       shell(),
       row({
@@ -119,11 +149,11 @@ describe("foregroundAgent", () => {
         pgid: 101,
         stat: "S+",
         command: "claude",
-        env: { CODEGENT_AGENT: "sandbox-agent" },
+        env: { CODEGENT_AGENT: "stale-label" },
       }),
     ];
 
-    expect(foregroundAgent(100, snapshot)).toEqual({ agent: "sandbox-agent", pid: 101 });
+    expect(foregroundAgent(100, snapshot)).toEqual({ agent: "claude", pid: 101 });
   });
 
   test("returns generic for an unknown foreground command", () => {
@@ -148,6 +178,23 @@ describe("foregroundAgent", () => {
     expect(foregroundAgent(100, snapshot)).toEqual({ agent: null, pid: null });
   });
 
+  test.each([
+    ["an arbitrary Node script", "node /tmp/claude.js"],
+    ["an arbitrary Python script", "python3 /tmp/claude.py"],
+    ["a codex helper-like executable", "/tmp/codex-helper"],
+    ["an opencode helper-like executable", "/tmp/opencode-helper"],
+    ["a shell touching a file named claude", "/bin/sh -c 'touch claude'"],
+    ["a PowerShell file named claude", 'powershell -File "C:\\tmp\\claude.ps1"'],
+    ["a Nix package reference", "nix shell nixpkgs#codex"],
+  ])("does not recognize %s as an agent", (_kind, command) => {
+    const snapshot: PsSnapshot = [
+      shell(),
+      row({ pid: 101, ppid: 100, pgid: 101, stat: "S+", command }),
+    ];
+
+    expect(foregroundAgent(100, snapshot)).toEqual({ agent: "generic", pid: 101 });
+  });
+
   test("filters headless claude -p out of Claude TUI recognition", () => {
     const snapshot: PsSnapshot = [
       shell(),
@@ -156,7 +203,22 @@ describe("foregroundAgent", () => {
         ppid: 100,
         pgid: 101,
         stat: "S+",
-        command: "claude -p 'summarize this repository' --output-format json",
+        command: "claude -p 'summarize this repository'",
+      }),
+    ];
+
+    expect(foregroundAgent(100, snapshot)).toEqual({ agent: "generic", pid: 101 });
+  });
+
+  test("filters Claude JSON output independently of the -p flag", () => {
+    const snapshot: PsSnapshot = [
+      shell(),
+      row({
+        pid: 101,
+        ppid: 100,
+        pgid: 101,
+        stat: "S+",
+        command: "claude --output-format json 'summarize this repository'",
       }),
     ];
 
@@ -195,6 +257,37 @@ describe("parsePsSnapshot", () => {
       },
       { pid: 102, ppid: 100, pgid: 101, stat: "Z+", command: "[defunct]" },
     ]);
+  });
+});
+
+describe("CODEGENT_AGENT live enrichment", () => {
+  test("parses the label from a NUL-delimited /proc environ fixture buffer", () => {
+    const environ = Buffer.from(
+      "PATH=/usr/bin\0NOT_CODEGENT_AGENT=wrong\0CODEGENT_AGENT=sandbox-agent\0TERM=xterm\0",
+    );
+
+    expect(parseCodegentAgentFromEnviron(environ)).toBe("sandbox-agent");
+    expect(parseCodegentAgentFromEnviron(Buffer.from("CODEGENT_AGENT=\0PATH=/usr/bin\0"))).toBe(
+      undefined,
+    );
+  });
+
+  test("enriches only selectable foreground descendants and feeds the pure classifier", async () => {
+    const snapshot: PsSnapshot = [
+      shell(),
+      row({ pid: 101, ppid: 100, pgid: 101, stat: "S+", command: "sandbox-wrapper" }),
+      row({ pid: 102, ppid: 100, pgid: 102, stat: "S", command: "background-wrapper" }),
+    ];
+    const reads: number[] = [];
+
+    const enriched = await enrichPsSnapshotAgentLabels(100, snapshot, async (pid) => {
+      reads.push(pid);
+      return pid === 101 ? "known-at-spawn" : "wrong-background-label";
+    });
+
+    expect(reads).toEqual([101]);
+    expect(foregroundAgent(100, enriched)).toEqual({ agent: "known-at-spawn", pid: 101 });
+    expect(snapshot[1]?.env).toBeUndefined();
   });
 });
 

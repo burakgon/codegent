@@ -1,20 +1,21 @@
 /**
  * Content-free process recognition for the universal terminal-state tier.
  *
- * The executable aliases and wrapper strategies come from
- * `docs/research/herdr-agent-state.md` §3a (runtime/shell/Nix unwrapping) and
- * `docs/research/orca-agent-state.md` §2.3 (package paths, Python modules,
- * packaged binary prefixes, and quoted argv scanning).
+ * Recognition is intentionally limited to the concrete patterns recorded in:
+ * - `docs/research/orca-agent-state.md` §2.3: package-manager module paths such
+ *   as `node_modules/@openai/codex/`, Python `-m`, and the
+ *   `codex-aarch64-*` packaged binary (`agent-process-recognition.ts:51-96,
+ *   284-320`).
+ * - `docs/research/herdr-agent-state.md` §3a: node/bun/python/shell argv
+ *   unwrapping, npm paths (including `node_modules/@anthropic-ai/claude-code/`
+ *   and `node_modules/@openai/codex/`), and the Nix `.codex-wrapped` argv0
+ *   (`src/detect/mod.rs:321-606`).
+ *
+ * A runtime executing an arbitrary file named `claude` or `codex` is not one
+ * of those patterns. Official executable names are recognized only as the
+ * command itself (or as an explicit package-runner target), while interpreter
+ * entrypoints must match a recorded package path/module.
  */
-
-export type AgentWrapper =
-  | "node"
-  | "bun"
-  | "python"
-  | "shell"
-  | "cmd"
-  | "powershell"
-  | "nix";
 
 export interface AgentRegistryEntry {
   /** Stable label emitted by Layer 1. */
@@ -29,21 +30,7 @@ export interface AgentRegistryEntry {
   readonly pythonPackagePaths: readonly string[];
   /** Native packaged executable prefixes such as `codex-aarch64-*`. */
   readonly packagedBinaryPrefixes: readonly string[];
-  /** Runtime wrappers through which the entry may be recognized. */
-  readonly wrappers: readonly AgentWrapper[];
-  /** The sole non-recognition entry, used after a foreground process fails every known rule. */
-  readonly fallback?: true;
 }
-
-const ALL_WRAPPERS = [
-  "node",
-  "bun",
-  "python",
-  "shell",
-  "cmd",
-  "powershell",
-  "nix",
-] as const satisfies readonly AgentWrapper[];
 
 const noPaths: readonly string[] = [];
 
@@ -55,7 +42,6 @@ export const AGENT_REGISTRY: readonly AgentRegistryEntry[] = [
     pythonModules: noPaths,
     pythonPackagePaths: noPaths,
     packagedBinaryPrefixes: noPaths,
-    wrappers: ALL_WRAPPERS,
   },
   {
     name: "codex",
@@ -63,8 +49,7 @@ export const AGENT_REGISTRY: readonly AgentRegistryEntry[] = [
     nodePackagePaths: ["node_modules/@openai/codex/"],
     pythonModules: noPaths,
     pythonPackagePaths: noPaths,
-    packagedBinaryPrefixes: ["codex-"],
-    wrappers: ALL_WRAPPERS,
+    packagedBinaryPrefixes: ["codex-aarch64-"],
   },
   {
     name: "gemini",
@@ -73,7 +58,6 @@ export const AGENT_REGISTRY: readonly AgentRegistryEntry[] = [
     pythonModules: noPaths,
     pythonPackagePaths: noPaths,
     packagedBinaryPrefixes: noPaths,
-    wrappers: ALL_WRAPPERS,
   },
   {
     name: "opencode",
@@ -81,8 +65,7 @@ export const AGENT_REGISTRY: readonly AgentRegistryEntry[] = [
     nodePackagePaths: ["node_modules/opencode-ai/"],
     pythonModules: noPaths,
     pythonPackagePaths: noPaths,
-    packagedBinaryPrefixes: ["opencode-"],
-    wrappers: ALL_WRAPPERS,
+    packagedBinaryPrefixes: noPaths,
   },
   {
     name: "aider",
@@ -91,7 +74,6 @@ export const AGENT_REGISTRY: readonly AgentRegistryEntry[] = [
     pythonModules: ["aider", "aider_chat"],
     pythonPackagePaths: ["site-packages/aider/", "site-packages/aider_chat/"],
     packagedBinaryPrefixes: noPaths,
-    wrappers: ALL_WRAPPERS,
   },
   {
     name: "amp",
@@ -100,7 +82,6 @@ export const AGENT_REGISTRY: readonly AgentRegistryEntry[] = [
     pythonModules: noPaths,
     pythonPackagePaths: noPaths,
     packagedBinaryPrefixes: noPaths,
-    wrappers: ALL_WRAPPERS,
   },
   {
     name: "goose",
@@ -109,7 +90,6 @@ export const AGENT_REGISTRY: readonly AgentRegistryEntry[] = [
     pythonModules: noPaths,
     pythonPackagePaths: noPaths,
     packagedBinaryPrefixes: noPaths,
-    wrappers: ALL_WRAPPERS,
   },
   {
     name: "generic",
@@ -118,12 +98,10 @@ export const AGENT_REGISTRY: readonly AgentRegistryEntry[] = [
     pythonModules: noPaths,
     pythonPackagePaths: noPaths,
     packagedBinaryPrefixes: noPaths,
-    wrappers: [],
-    fallback: true,
   },
 ];
 
-const PROCESS_EXTENSION_RE = /\.(?:exe|cmd|bat|ps1|js|mjs|cjs|py|pyw)$/i;
+const PROCESS_EXTENSION_RE = /\.(?:exe|cmd|bat)$/i;
 const PYTHON_RE = /^python(?:\d+(?:\.\d+)*)?$/;
 const NODE_RE = /^(?:node|nodejs)$/;
 const SHELLS = new Set(["sh", "bash", "dash", "zsh", "fish", "ksh", "mksh"]);
@@ -139,6 +117,12 @@ const NODE_INLINE_SOURCE_OPTIONS = new Set(["-e", "--eval", "-p", "--print", "--
 const PYTHON_OPTIONS_WITH_VALUE = new Set(["-W", "-X"]);
 const CLAUDE_HEADLESS_FLAGS = new Set(["-p", "--print"]);
 const CLAUDE_HEADLESS_FORMATS = new Set(["json", "stream-json"]);
+/**
+ * Deliberate safety bound for recursively nested shell/runtime command lines.
+ * Eight layers cover normal wrapper stacks while bounding work on untrusted
+ * argv. A legitimate deeper stack can become a generic false negative; that is
+ * the accepted tradeoff for predictable classification cost.
+ */
 const MAX_UNWRAP_DEPTH = 8;
 
 function comparablePath(value: string): string {
@@ -290,9 +274,11 @@ function stripCommandPrefixes(tokens: readonly string[]): string[] {
   return tokens.slice(index);
 }
 
-function recognizeNested(payload: string, trailing: readonly string[], depth: number): string | null {
-  const pathAgent = matchExecutable(payload);
-  if (pathAgent) return accept(pathAgent, [payload, ...trailing]);
+function recognizeCommandPayload(
+  payload: string,
+  trailing: readonly string[],
+  depth: number,
+): string | null {
   return recognizeTokens([...tokenize(payload), ...trailing], depth + 1);
 }
 
@@ -311,24 +297,45 @@ function findNodeEntrypoint(tokens: readonly string[]): number | null {
   return null;
 }
 
-function recognizeNode(tokens: readonly string[], depth: number): string | null {
+function recognizeNode(tokens: readonly string[]): string | null {
   const index = findNodeEntrypoint(tokens);
   if (index === null) return null;
   const entrypoint = tokens[index] ?? "";
   const invocation = [entrypoint, ...tokens.slice(index + 1)];
-  const agent = matchExecutable(entrypoint) ?? matchPackagePath(entrypoint, "nodePackagePaths");
-  if (agent) return accept(agent, invocation);
-  return recognizeTokens(invocation, depth + 1);
+  // Interpreter entrypoints are package paths, never basename guesses. This
+  // keeps `node /tmp/claude.js` distinct from the official `claude` command.
+  const agent = matchPackagePath(entrypoint, "nodePackagePaths");
+  return agent ? accept(agent, invocation) : null;
 }
 
-function recognizePython(tokens: readonly string[], depth: number): string | null {
+function recognizeBunPackageRunner(
+  tokens: readonly string[],
+  packageIndex: number,
+): string | null {
+  const target = tokens[packageIndex] ?? "";
+  // `bun x`/`bunx` take a package/bin name here. Paths remain interpreter
+  // entrypoints and must pass the package-path rules instead.
+  if (!target || target.includes("/") || target.includes("\\") || target.startsWith(".")) {
+    return null;
+  }
+  return accept(matchExecutable(target), [target, ...tokens.slice(packageIndex + 1)]);
+}
+
+function recognizeBun(tokens: readonly string[], bunx: boolean): string | null {
+  if (bunx) return recognizeBunPackageRunner(tokens, 1);
+  if ((tokens[1] ?? "").toLowerCase() === "x") return recognizeBunPackageRunner(tokens, 2);
+  return recognizeNode(tokens);
+}
+
+function recognizePython(tokens: readonly string[]): string | null {
   for (let index = 1; index < tokens.length; index += 1) {
     const token = tokens[index] ?? "";
     if (token === "--") {
       const entrypoint = tokens[index + 1];
-      return entrypoint
-        ? recognizeNested(entrypoint, tokens.slice(index + 2), depth)
-        : null;
+      if (!entrypoint) return null;
+      const invocation = [entrypoint, ...tokens.slice(index + 2)];
+      const agent = matchPackagePath(entrypoint, "pythonPackagePaths");
+      return agent ? accept(agent, invocation) : null;
     }
     if (token === "-m") {
       const module = tokens[index + 1];
@@ -341,8 +348,10 @@ function recognizePython(tokens: readonly string[], depth: number): string | nul
       continue;
     }
     const invocation = [token, ...tokens.slice(index + 1)];
-    const agent = matchExecutable(token) ?? matchPackagePath(token, "pythonPackagePaths");
-    return agent ? accept(agent, invocation) : recognizeTokens(invocation, depth + 1);
+    // As with Node, a Python script basename is not agent identity. Only a
+    // documented module or installed package path is accepted.
+    const agent = matchPackagePath(token, "pythonPackagePaths");
+    return agent ? accept(agent, invocation) : null;
   }
   return null;
 }
@@ -353,16 +362,14 @@ function recognizeShell(tokens: readonly string[], depth: number): string | null
     const lower = token.toLowerCase();
     if (lower === "--command" || /^-[^-]*c[^-]*$/.test(lower)) {
       const payload = tokens[index + 1];
-      return payload ? recognizeNested(payload, tokens.slice(index + 2), depth) : null;
+      return payload ? recognizeCommandPayload(payload, tokens.slice(index + 2), depth) : null;
     }
     if (token === "--") {
-      const entrypoint = tokens[index + 1];
-      return entrypoint
-        ? recognizeNested(entrypoint, tokens.slice(index + 2), depth)
-        : null;
+      return null;
     }
     if (token.startsWith("-")) continue;
-    return recognizeNested(token, tokens.slice(index + 1), depth);
+    // A positional shell argument is a script file, not an executable command.
+    return null;
   }
   return null;
 }
@@ -372,7 +379,7 @@ function recognizeCmd(tokens: readonly string[], depth: number): string | null {
     const flag = (tokens[index] ?? "").toLowerCase();
     if (flag === "/c" || flag === "/k") {
       const payload = tokens[index + 1];
-      return payload ? recognizeNested(payload, tokens.slice(index + 2), depth) : null;
+      return payload ? recognizeCommandPayload(payload, tokens.slice(index + 2), depth) : null;
     }
   }
   return null;
@@ -382,36 +389,22 @@ function recognizePowerShell(tokens: readonly string[], depth: number): string |
   for (let index = 1; index < tokens.length; index += 1) {
     const flag = (tokens[index] ?? "").toLowerCase();
     if (["-file", "-f", "/file"].includes(flag)) {
-      const path = tokens[index + 1];
-      return path ? recognizeNested(path, tokens.slice(index + 2), depth) : null;
+      // `-File` names a script; its basename alone is not agent identity.
+      return null;
     }
     if (["-command", "-c", "/command", "/c"].includes(flag)) {
       const payload = tokens[index + 1];
-      return payload ? recognizeNested(payload, tokens.slice(index + 2), depth) : null;
+      return payload ? recognizeCommandPayload(payload, tokens.slice(index + 2), depth) : null;
     }
     if (["-encodedcommand", "-enc", "/encodedcommand", "/enc"].includes(flag)) return null;
   }
   return null;
 }
 
-function recognizeNix(tokens: readonly string[], depth: number): string | null {
-  const wrapped = normalizedExecutable(tokens[0]).match(/^\.?(.+)-wrapped$/)?.[1];
-  if (wrapped) {
-    const agent = matchExecutable(wrapped);
-    if (agent) return accept(agent, tokens);
-  }
-
-  for (let index = 1; index < tokens.length; index += 1) {
-    const token = tokens[index] ?? "";
-    if (["--", "--command", "--run", "-c"].includes(token.toLowerCase())) {
-      const payload = tokens[index + 1];
-      return payload ? recognizeNested(payload, tokens.slice(index + 2), depth) : null;
-    }
-    const packageName = token.includes("#") ? token.slice(token.lastIndexOf("#") + 1) : "";
-    const packageAgent = packageName ? matchExecutable(packageName) : null;
-    if (packageAgent) return accept(packageAgent, [packageName, ...tokens.slice(index + 1)]);
-  }
-  return null;
+function recognizeRecordedNixWrapper(tokens: readonly string[]): string | null {
+  // herdr §3a records this exact argv0 shape. A `nixpkgs#codex` package
+  // reference is configuration text, not evidence of the running executable.
+  return normalizedExecutable(tokens[0]) === ".codex-wrapped" ? accept("codex", tokens) : null;
 }
 
 function recognizeTokens(rawTokens: readonly string[], depth: number): string | null {
@@ -423,15 +416,14 @@ function recognizeTokens(rawTokens: readonly string[], depth: number): string | 
   if (direct) return accept(direct, tokens);
 
   const runtime = normalizedExecutable(tokens[0]);
-  if (NODE_RE.test(runtime)) return recognizeNode(tokens, depth);
-  if (runtime === "bun") return recognizeNode(tokens, depth);
-  if (PYTHON_RE.test(runtime)) return recognizePython(tokens, depth);
+  if (NODE_RE.test(runtime)) return recognizeNode(tokens);
+  if (runtime === "bun") return recognizeBun(tokens, false);
+  if (runtime === "bunx") return recognizeBun(tokens, true);
+  if (PYTHON_RE.test(runtime)) return recognizePython(tokens);
   if (SHELLS.has(runtime)) return recognizeShell(tokens, depth);
   if (runtime === "cmd") return recognizeCmd(tokens, depth);
   if (POWERSHELLS.has(runtime)) return recognizePowerShell(tokens, depth);
-  if (runtime === "nix" || runtime === "nix-shell" || /\.?[^/]+-wrapped$/.test(runtime)) {
-    return recognizeNix(tokens, depth);
-  }
+  if (runtime === ".codex-wrapped") return recognizeRecordedNixWrapper(tokens);
   return null;
 }
 

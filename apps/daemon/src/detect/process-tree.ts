@@ -7,7 +7,7 @@ export interface PsSnapshotRow {
   pgid: number;
   stat: string;
   command: string;
-  /** Testable projection of the child process's environment escape hatch. */
+  /** Child-label projection populated by live enrichment or injected by a fixture. */
   env?: Readonly<{ CODEGENT_AGENT?: string }>;
 }
 
@@ -65,8 +65,24 @@ function candidateScore(process: Descendant): number {
   return (process.stat.includes("+") ? 10_000 : 0) + process.depth;
 }
 
+function foregroundCandidates(shellPid: number, snapshot: PsSnapshot): Descendant[] {
+  const shell = snapshot.find((process) => process.pid === shellPid);
+  const descendants = collectDescendants(snapshot, shellPid);
+  const foregroundIsKnown =
+    shell?.stat.includes("+") === true || descendants.some((process) => process.stat.includes("+"));
+  return descendants
+    .filter((process) => !foregroundIsKnown || process.stat.includes("+"))
+    .sort((left, right) => candidateScore(right) - candidateScore(left));
+}
+
 /**
  * Pure Layer-1 identity over one injected process-table snapshot.
+ *
+ * Primary identity does not originate here: the daemon spawns the agent PTY
+ * and records its label at launch. The Task 6/7 classifier/adapter passes that
+ * known-agent hint; process-tree evidence confirms or refines it rather than
+ * acting as the sole source of identity. `CODEGENT_AGENT` is the fallback for
+ * recovering that daemon-set label from a child when a wrapper hides argv.
  *
  * The shell itself is a foreground gate, not a candidate: if it owns `+`,
  * background descendants must not masquerade as a live agent. When a platform
@@ -75,22 +91,16 @@ function candidateScore(process: Descendant): number {
 export function foregroundAgent(shellPid: number, snapshot: PsSnapshot): ForegroundAgentResult {
   if (!Number.isInteger(shellPid) || shellPid <= 1) return { agent: null, pid: null };
 
-  const shell = snapshot.find((process) => process.pid === shellPid);
-  const descendants = collectDescendants(snapshot, shellPid);
-  const foregroundIsKnown =
-    shell?.stat.includes("+") === true || descendants.some((process) => process.stat.includes("+"));
-  const candidates = descendants
-    .filter((process) => !foregroundIsKnown || process.stat.includes("+"))
-    .sort((left, right) => candidateScore(right) - candidateScore(left));
-
-  for (const candidate of candidates) {
-    const label = candidate.env?.CODEGENT_AGENT?.trim();
-    if (label) return { agent: label, pid: candidate.pid };
-  }
+  const candidates = foregroundCandidates(shellPid, snapshot);
 
   for (const candidate of candidates) {
     const agent = recognizeAgentCommand(candidate.command);
     if (agent) return { agent, pid: candidate.pid };
+  }
+
+  for (const candidate of candidates) {
+    const label = candidate.env?.CODEGENT_AGENT?.trim();
+    if (label) return { agent: label, pid: candidate.pid };
   }
 
   const generic = candidates[0];
@@ -114,20 +124,73 @@ export function parsePsSnapshot(output: string): PsSnapshot {
   return rows;
 }
 
+const CODEGENT_AGENT_ENV_PREFIX = "CODEGENT_AGENT=";
+
+/** Parse a Linux `/proc/<pid>/environ` byte buffer (NUL-delimited entries). */
+export function parseCodegentAgentFromEnviron(environ: Uint8Array): string | undefined {
+  const entries = new TextDecoder().decode(environ).split("\0");
+  for (const entry of entries) {
+    if (!entry.startsWith(CODEGENT_AGENT_ENV_PREFIX)) continue;
+    const label = entry.slice(CODEGENT_AGENT_ENV_PREFIX.length).trim();
+    if (label) return label;
+  }
+  return undefined;
+}
+
+/**
+ * Best-effort live child-label read. Linux exposes the inherited environment
+ * at `/proc/<pid>/environ`; macOS and other platforms have no equivalent used
+ * by this layer and are deliberately unsupported-live (return `undefined`).
+ * Races, permission failures, and exited processes also degrade without error.
+ */
+export async function readCodegentAgentFromProcess(pid: number): Promise<string | undefined> {
+  if (process.platform !== "linux" || !Number.isInteger(pid) || pid <= 1) return undefined;
+  try {
+    const environ = new Uint8Array(await Bun.file(`/proc/${pid}/environ`).arrayBuffer());
+    return parseCodegentAgentFromEnviron(environ);
+  } catch {
+    return undefined;
+  }
+}
+
+type AgentLabelReader = (pid: number) => Promise<string | undefined>;
+
+/**
+ * Populate the snapshot projection for foreground descendants only. Keeping
+ * the reader injectable makes enrichment testable while `foregroundAgent`
+ * remains pure over its supplied snapshot.
+ */
+export async function enrichPsSnapshotAgentLabels(
+  shellPid: number,
+  snapshot: PsSnapshot,
+  readLabel: AgentLabelReader = readCodegentAgentFromProcess,
+): Promise<PsSnapshot> {
+  if (!Number.isInteger(shellPid) || shellPid <= 1) return snapshot;
+  const labels = new Map<number, string>();
+  await Promise.all(
+    foregroundCandidates(shellPid, snapshot).map(async (candidate) => {
+      const label = (await readLabel(candidate.pid))?.trim();
+      if (label) labels.set(candidate.pid, label);
+    }),
+  );
+  if (labels.size === 0) return snapshot;
+  return snapshot.map((row) => {
+    const label = labels.get(row.pid);
+    return label ? { ...row, env: { ...row.env, CODEGENT_AGENT: label } } : row;
+  });
+}
+
 /**
  * Thin live capture. The spawn/error mechanics are shared with the v0.2 pgid
  * reaper; cache/single-flight policy belongs to the Task-6 classifier caller.
  *
- * `env.CODEGENT_AGENT` is part of the injected snapshot contract so detection
- * remains pure and fixtures can exercise it. TODO(Task 6/platform): populate
- * that projection from `/proc/<pid>/environ` on Linux and `KERN_PROCARGS2` on
- * macOS, or from the launch-time label map when a sandbox denies process-env
- * reads. Bun has no portable child-environ API, so this portable `ps` capture
- * deliberately does not scan or retain whole process environments.
+ * Passing the pane shell PID limits Linux environment reads to foreground
+ * descendants that `foregroundAgent` can actually select. Only the single
+ * `CODEGENT_AGENT` label is retained; whole process environments are not.
  */
-export async function capturePsSnapshot(): Promise<PsSnapshot> {
+export async function capturePsSnapshot(shellPid: number): Promise<PsSnapshot> {
   const output = await capturePsOutput("pid=,ppid=,pgid=,stat=,command=");
-  return parsePsSnapshot(output);
+  return enrichPsSnapshotAgentLabels(shellPid, parsePsSnapshot(output));
 }
 
 /** Six-miss presence hysteresis adopted from herdr `pane.rs:248`. */
