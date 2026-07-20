@@ -1,0 +1,23 @@
+{
+  "name": "ghostty-web",
+  "version": "0.4.0",
+  "description": "Prebuilt ghostty-web dist (vendored from coder/ghostty-web) \u2014 CI/install never needs the wasm/zig toolchain. Rebuild via the vendor submodule when bumping.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/ghostty-web.umd.cjs",
+  "module": "./dist/ghostty-web.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/ghostty-web.js",
+      "require": "./dist/ghostty-web.umd.cjs"
+    },
+    "./ghostty-vt.wasm": "./ghostty-vt.wasm"
+  },
+  "files": [
+    "dist",
+    "ghostty-vt.wasm",
+    "README.md"
+  ]
+}

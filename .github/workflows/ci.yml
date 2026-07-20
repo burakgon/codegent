@@ -10,14 +10,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: true   # vendor/ghostty-web (outer only; flip to `recursive` if lib needs the inner ghostty tree)
+          submodules: true   # daemon tests read vendor/ghostty-web/lib TS; the WEB build uses the committed packages/ghostty-web-dist prebuilt
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
-      # vendor ghostty-web ships lib TS + a PREBUILT ghostty-vt.wasm; only the
-      # vite lib build is needed (skips build:wasm and the zig toolchain).
-      - run: cd vendor/ghostty-web && bun install && bunx vite build && cp ghostty-vt.wasm dist/
       - run: bun test
       - run: bun run typecheck
       - run: cd apps/web && bunx vite build
