@@ -216,3 +216,29 @@ test("terminal over ws: snapshot then live", async () => {
   expect(frames.join("")).toContain("WS_OK");
   ws.close(); ptys.close(meta.id);
 }, 20000);
+
+test("terminal over ws: retained dead ring replays as a frozen session", async () => {
+  const meta = ptys.open({
+    projectId: "frozen", cwd: "/tmp", title: "frozen", kind: "agent", attemptId: 777,
+    cmd: ["sh", "-c", "printf FROZEN_REPLAY"],
+  });
+  const process = ptys.get(meta.id)!;
+  await process.exited; // includes the final serialized ring flush
+  await Bun.sleep(0); // let PtyManager's exit continuation remove the live entry
+  expect(ptys.get(meta.id)).toBeUndefined();
+
+  const ws = new WebSocket(`${srv.url.replace("http", "ws")}ws?t=testtoken`);
+  const replay = new Promise<string>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("frozen replay timed out")), 3000);
+    ws.onmessage = message => {
+      const envelope = decodeEnvelope(String(message.data));
+      if (envelope.ch !== "term" || envelope.sid !== meta.id) return;
+      clearTimeout(timer);
+      resolve(Buffer.from(envelope.data, "base64").toString());
+    };
+  });
+  await new Promise(resolve => (ws.onopen = resolve));
+  ws.send(encodeEnvelope({ ch: "sub", sid: meta.id }));
+  expect(await replay).toContain("FROZEN_REPLAY");
+  ws.close();
+}, 20000);

@@ -22,7 +22,7 @@ const cssColor = (token: string) =>
 // re-sub, so the replayed ring snapshot always lands on a clean screen.
 const SANITIZE = "\x1b[H\x1b[2J\x1b[3J";
 
-export function GhosttyTerm({ sid, focused, onFocus }: { sid: string; focused: boolean; onFocus: () => void }) {
+export function GhosttyTerm({ sid, focused, readOnly = false, onFocus }: { sid: string; focused: boolean; readOnly?: boolean; onFocus: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const [engineFailed, setEngineFailed] = useState(false);
@@ -57,9 +57,11 @@ export function GhosttyTerm({ sid, focused, onFocus }: { sid: string; focused: b
       // guessed px-per-cell divisors; observeResize() re-fits on pane resize.
       const fit = new FitAddon();
       term.loadAddon(fit);
-      const onResize = term.onResize(({ cols, rows }) => socket.resize(sid, cols, rows));
+      const onResize = term.onResize(({ cols, rows }) => {
+        if (!readOnly) socket.resize(sid, cols, rows);
+      });
       const onData = term.onData(d => {
-        if (d.length > 0) socket.input(sid, new TextEncoder().encode(d));
+        if (!readOnly && d.length > 0) socket.input(sid, new TextEncoder().encode(d));
       });
       fit.fit(); // size to the pane before replay arrives
       fit.observeResize();
@@ -75,7 +77,7 @@ export function GhosttyTerm({ sid, focused, onFocus }: { sid: string; focused: b
       // always enqueued into the term ahead of the snapshot — same rule as
       // mount, or the replay lands on top of the old screen.
       const offReconnect = socket.onReconnect(() => term.write(SANITIZE));
-      socket.resize(sid, term.cols, term.rows); // sync the PTY even if fit() no-oped
+      if (!readOnly) socket.resize(sid, term.cols, term.rows); // sync the PTY even if fit() no-oped
       cleanup = () => {
         offReconnect(); // this pane must not sanitize after teardown began
         offBytes(); // detach BEFORE dispose — no bytes may hit a disposed terminal
@@ -88,7 +90,7 @@ export function GhosttyTerm({ sid, focused, onFocus }: { sid: string; focused: b
     })();
 
     return () => { cancelled = true; cleanup?.(); cleanup = null; };
-  }, [sid, socket]);
+  }, [sid, socket, readOnly]);
 
   // Rail picks focus an already-open pane without a click; on first mount the
   // engine's open() self-focuses, so the null termRef during init is fine.
@@ -97,7 +99,7 @@ export function GhosttyTerm({ sid, focused, onFocus }: { sid: string; focused: b
   }, [focused]);
 
   return (
-    <div data-term ref={ref} onMouseDown={onFocus}
+    <div data-term data-read-only={readOnly || undefined} ref={ref} onMouseDown={onFocus}
       style={{ flex: 1, minWidth: 0, opacity: focused ? 1 : .75, transition: "opacity .2s", background: "var(--bg)" }}>
       {engineFailed && (
         <div style={{ display: "grid", placeItems: "center", height: "100%", fontSize: 11, color: "var(--red)" }}>

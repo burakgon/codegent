@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Card, SessionMeta } from "@codegent/protocol";
 import { api } from "../api";
+import { railSessionEntries } from "../projection";
 
 type TimelineEntry = {
   id: number;
@@ -15,6 +16,7 @@ type Props = {
   card: Card;
   projectId: string;
   sendBack: boolean;
+  onSession: (sessionId: string) => void;
   onClose: () => void;
   onChanged: () => void;
   onError: (error: unknown) => void;
@@ -41,7 +43,7 @@ export function sendBackComments(value: string): string[] {
   return comment ? [comment] : [];
 }
 
-export function Details({ card, projectId, sendBack, onClose, onChanged, onError }: Props) {
+export function Details({ card, projectId, sendBack, onSession, onClose, onChanged, onError }: Props) {
   const [title, setTitle] = useState(card.title);
   const [body, setBody] = useState(card.body);
   const [comments, setComments] = useState("");
@@ -66,6 +68,10 @@ export function Details({ card, projectId, sendBack, onClose, onChanged, onError
   const history = useMemo(
     () => (sessions.data ?? []).filter(session => session.kind === "agent" && session.attemptId === card.attemptId).sort((a, b) => b.createdAt - a.createdAt),
     [sessions.data, card.attemptId],
+  );
+  const replayable = useMemo(
+    () => new Set(railSessionEntries(sessions.data ?? [], [card]).filter(entry => entry.session.kind === "agent").map(entry => entry.session.id)),
+    [sessions.data, card],
   );
 
   const save = async () => {
@@ -162,13 +168,24 @@ export function Details({ card, projectId, sendBack, onClose, onChanged, onError
           {sessions.isError && <div style={{ marginTop: 8, color: "var(--red)", fontSize: 11 }}>Sessions unavailable</div>}
           {!sessions.isError && history.length === 0 && <div style={{ marginTop: 8, color: "var(--dim)", fontSize: 11 }}>No agent sessions</div>}
           <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 9 }}>
-            {history.map((session, index) => (
-              <div key={session.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 9px", border: "1px solid var(--hairline)", borderRadius: 8, background: "var(--surface)" }}>
-                <span style={{ color: "var(--ctrl)", fontSize: 10, fontWeight: 650, letterSpacing: ".4px" }}>SESSION {history.length - index}</span>
-                <span style={{ marginLeft: "auto", color: session.live ? "var(--green)" : "var(--meta)", fontSize: 10, fontWeight: 650 }}>{session.live ? "LIVE" : "ENDED"}</span>
-                <span style={{ color: "var(--dim)", fontSize: 9.5, fontWeight: 400, fontVariantNumeric: "tabular-nums" }}>{stamp(session.createdAt)}</span>
-              </div>
-            ))}
+            {history.map((session, index) => {
+              const content = (
+                <>
+                  <span style={{ color: "var(--ctrl)", fontSize: 10, fontWeight: 650, letterSpacing: ".4px" }}>SESSION {history.length - index}</span>
+                  <span style={{ marginLeft: "auto", color: session.live ? "var(--green)" : "var(--meta)", fontSize: 10, fontWeight: 650 }}>{session.live ? "LIVE" : "ENDED"}</span>
+                  <span style={{ color: "var(--dim)", fontSize: 9.5, fontWeight: 400, fontVariantNumeric: "tabular-nums" }}>{stamp(session.createdAt)}</span>
+                </>
+              );
+              const style: React.CSSProperties = { display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 9px", border: "1px solid var(--hairline)", borderRadius: 8, background: "var(--surface)", font: "inherit", textAlign: "left" };
+              return replayable.has(session.id) ? (
+                <button key={session.id} type="button" data-session-link={session.id} aria-label={`Open session ${history.length - index}`} onClick={() => onSession(session.id)}
+                  style={{ ...style, cursor: "pointer" }}>
+                  {content}
+                </button>
+              ) : (
+                <div key={session.id} style={style}>{content}</div>
+              );
+            })}
           </div>
         </section>
       </div>

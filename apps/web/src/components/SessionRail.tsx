@@ -1,17 +1,34 @@
 import React, { useState } from "react";
-import type { SessionMeta, Worktree } from "@codegent/protocol";
+import type { Card, SessionMeta, Worktree } from "@codegent/protocol";
+import { railSessionEntries } from "../projection";
 
-export function SessionRail({ sessions, worktrees, openIds, focusedId, onPick, onNew }: {
-  sessions: SessionMeta[]; worktrees: Worktree[]; openIds: string[]; focusedId: string | null;
+export function SessionRail({ sessions, cards, worktrees, openIds, focusedId, onPick, onNew }: {
+  sessions: SessionMeta[]; cards: Card[]; worktrees: Worktree[]; openIds: string[]; focusedId: string | null;
   onPick: (id: string) => void;
   onNew: (target: { kind: "main" } | { kind: "worktree"; id: string } | { kind: "new"; name: string; base?: string }) => void;
 }) {
   const [picker, setPicker] = useState(false);
   const [newName, setNewName] = useState<string | null>(null);
+  const entries = railSessionEntries(sessions, cards);
   return (
     <div style={{ width: 216, borderRight: "1px solid var(--surface-2)", background: "var(--bg-deep)", padding: 10, display: "flex", flexDirection: "column", gap: 2 }}>
       <div style={{ fontSize: 10, fontWeight: 650, letterSpacing: ".8px", color: "var(--dim)", margin: "4px 0 8px" }}>SESSIONS</div>
-      {sessions.filter(s => s.live).map(s => (
+      {entries.map(({ session: s, agent, previous }) => s.kind === "agent" ? (
+        <div key={s.id} data-session-kind="agent" data-agent={agent ?? "agent"} data-previous-session={previous || undefined}
+          onClick={() => onPick(s.id)}
+          style={{ display: "flex", gap: 9, padding: "7px 9px", borderRadius: 8, cursor: "pointer",
+            background: s.id === focusedId ? "var(--surface)" : "transparent",
+            border: `1px solid ${s.id === focusedId ? "var(--border)" : "transparent"}` }}>
+          <span style={{ width: 7, height: 7, borderRadius: 999, background: s.worktreeId ? "var(--violet-2)" : "var(--dim)", marginTop: 4, flexShrink: 0 }} />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, color: s.id === focusedId ? "var(--text)" : "var(--text-2)" }}>
+              <AgentGlyph agent={agent} />
+              <span style={{ minWidth: 0, fontSize: 12, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title}</span>
+            </div>
+            <div style={{ fontSize: 10, color: "var(--dim)" }}>{agent ?? "agent"} · {previous ? "previous" : openIds.includes(s.id) ? "on screen" : "live"}</div>
+          </div>
+        </div>
+      ) : (
         <div key={s.id} onClick={() => onPick(s.id)}
           style={{ display: "flex", gap: 9, padding: "7px 9px", borderRadius: 8, cursor: "pointer",
             background: s.id === focusedId ? "var(--surface)" : "transparent",
@@ -50,6 +67,27 @@ export function SessionRail({ sessions, worktrees, openIds, focusedId, onPick, o
       </div>
     </div>
   );
+}
+
+function AgentGlyph({ agent }: { agent: "claude" | "codex" | null }) {
+  const common = {
+    width: 12, height: 12, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor",
+    strokeWidth: 1.4, strokeLinecap: "round" as const, strokeLinejoin: "round" as const,
+    "aria-hidden": true, style: { flexShrink: 0, color: agent === "claude" ? "var(--amber-soft)" : agent === "codex" ? "var(--green)" : "var(--violet-2)" },
+  };
+  if (agent === "claude") return (
+    <svg {...common} data-agent-glyph="claude">
+      <path d="M8 2v12M2 8h12M3.8 3.8l8.4 8.4M12.2 3.8l-8.4 8.4" />
+      <circle cx="8" cy="8" r="1.3" />
+    </svg>
+  );
+  if (agent === "codex") return (
+    <svg {...common} data-agent-glyph="codex">
+      <path d="m8 1.8 5.3 3.1v6.2L8 14.2l-5.3-3.1V4.9Z" />
+      <path d="M10.6 5.7A3.1 3.1 0 1 0 10.7 10" />
+    </svg>
+  );
+  return <svg {...common} data-agent-glyph="agent"><path d="M8 2.2v11.6M3 5l10 6M13 5 3 11" /></svg>;
 }
 
 function PickRow({ label, hint, onClick }: { label: string; hint?: string; onClick: () => void }) {

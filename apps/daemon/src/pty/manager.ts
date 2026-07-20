@@ -3,7 +3,7 @@ import type { SessionMeta } from "@codegent/protocol";
 import { PtySession } from "./session";
 import { insertSession, setSessionLive, listSessions } from "../store/sessions";
 import { events } from "../events";
-import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 export interface OpenSessionOpts {
@@ -65,6 +65,23 @@ export class PtyManager {
 
   get(id: string): PtySession | undefined {
     return this.live.get(id);
+  }
+
+  /**
+   * Snapshot source for a websocket subscription. Live sessions replay their
+   * in-memory ring and continue streaming; retained dead sessions replay the
+   * frozen ring file only. The row check plus id grammar keeps client-provided
+   * session ids from becoming arbitrary filesystem paths.
+   */
+  replay(id: string): { snapshot: Uint8Array; session: PtySession | null } | null {
+    const session = this.live.get(id);
+    if (session) return { snapshot: session.snapshot(), session };
+    if (!/^[A-Za-z0-9_-]+$/.test(id)) return null;
+    const row = this.db.query(`SELECT live FROM sessions WHERE id = ?1`).get(id) as { live: number } | null;
+    if (!row || row.live) return null;
+    const path = join(this.dataDir, "rings", `${id}.bin`);
+    if (!existsSync(path)) return null;
+    return { snapshot: new Uint8Array(readFileSync(path)), session: null };
   }
 
   /** All live PTY sessions across projects — used by the entrypoint for graceful shutdown. */

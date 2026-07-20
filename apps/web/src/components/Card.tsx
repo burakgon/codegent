@@ -13,6 +13,7 @@ type Props = {
   onDragOver?: (event: React.DragEvent<HTMLDivElement>) => void;
   onDrop?: (event: React.DragEvent<HTMLDivElement>) => void;
   onDragEnd?: () => void;
+  onOpenSession?: () => void;
   onChanged: () => void;
   onError: (error: unknown) => void;
   onDetails: (sendBack?: boolean) => void;
@@ -72,7 +73,7 @@ export function formatElapsed(ms: number): string {
 
 export function CardView({
   card, column, now, queuePosition, draggable, onDragStart, onDragOver, onDrop, onDragEnd,
-  onChanged, onError, onDetails, onDiscarded,
+  onOpenSession, onChanged, onError, onDetails, onDiscarded,
 }: Props) {
   const [menu, setMenu] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -118,10 +119,22 @@ export function CardView({
   };
 
   return (
-    <div data-card-id={card.id} data-column={column} draggable={draggable}
+    <div data-card-id={card.id} data-column={column} data-terminal-route={onOpenSession ? true : undefined} draggable={draggable}
       onDragStart={onDragStart} onDragOver={onDragOver} onDrop={onDrop} onDragEnd={onDragEnd}
+      tabIndex={onOpenSession ? 0 : undefined}
+      onClick={onOpenSession ? event => {
+        // Embedded actions keep their existing behavior; the task-language
+        // card surface around them is the terminal deep-link target.
+        if ((event.target as HTMLElement).closest?.("button, input, textarea, a")) return;
+        onOpenSession();
+      } : undefined}
+      onKeyDown={onOpenSession ? event => {
+        if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+        event.preventDefault();
+        onOpenSession();
+      } : undefined}
       onMouseLeave={() => setMenu(false)}
-      style={{ position: "relative", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 11px", marginBottom: 8, opacity: card.phase === "done" ? .72 : 1, cursor: draggable ? "grab" : "default" }}>
+      style={{ position: "relative", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 11px", marginBottom: 8, opacity: card.phase === "done" ? .72 : 1, cursor: onOpenSession ? "pointer" : draggable ? "grab" : "default" }}>
       <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
         <div style={{ minWidth: 0, flex: 1, paddingRight: 16, color: "var(--text)", fontSize: 12, fontWeight: 500, lineHeight: 1.35, textDecoration: card.phase === "done" ? "line-through" : "none", overflowWrap: "anywhere" }}>{card.title}</div>
         <button type="button" aria-label="Card menu" onClick={() => setMenu(open => !open)}

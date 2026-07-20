@@ -29,9 +29,10 @@ events.on((e: DomainEvent) => {
 
 /**
  * Bun.serve websocket handlers. Protocol (Envelope):
- * client `sub {sid}` → one `term` frame with the full ring snapshot (base64),
- * then live output streamed as further `term` frames; `input`/`resize` are
- * forwarded to the PTY; `unsub` detaches. Socket close detaches everything.
+ * client `sub {sid}` → one `term` frame with the full ring snapshot (base64).
+ * Live output then streams as further `term` frames; a retained dead-agent
+ * ring is replay-only. `input`/`resize` are forwarded to live PTYs; `unsub`
+ * detaches. Socket close detaches everything.
  * `ws.data` is populated by `server.upgrade(req, { data })` in server.ts.
  */
 export const wsHandlers = (ptys: PtyManager) => ({
@@ -52,17 +53,17 @@ export const wsHandlers = (ptys: PtyManager) => ({
     try {
       if (env.ch === "sub") {
         if (ws.data.subs.has(env.sid)) return; // idempotent re-sub
-        const s = ptys.get(env.sid);
-        if (!s) return;
+        const replay = ptys.replay(env.sid);
+        if (!replay) return;
         const sid = env.sid;
-        ws.send(encodeEnvelope({ ch: "term", sid, data: Buffer.from(s.snapshot()).toString("base64") }));
-        const off = s.onData(b => {
+        ws.send(encodeEnvelope({ ch: "term", sid, data: Buffer.from(replay.snapshot).toString("base64") }));
+        const off = replay.session?.onData(b => {
           try {
             ws.send(encodeEnvelope({ ch: "term", sid, data: Buffer.from(b).toString("base64") }));
           } catch {
             /* never let a closed socket throw into the PTY data fan-out */
           }
-        });
+        }) ?? (() => {}); // frozen replays still occupy a sub slot for idempotence
         ws.data.subs.set(sid, off);
       } else if (env.ch === "unsub") {
         ws.data.subs.get(env.sid)?.();

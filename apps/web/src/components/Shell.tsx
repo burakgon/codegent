@@ -1,4 +1,4 @@
-import React, { createContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Project } from "@codegent/protocol";
 import { api, connectWs, type CgSocket, type WsState } from "../api";
@@ -9,13 +9,30 @@ import { TerminalView } from "./TerminalView";
 import { Palette } from "./Palette";
 
 export type View = "board" | "terminal" | "diff";
-export const AppCtx = createContext<{ projectId: string; view: View; setView: (v: View) => void; socket: CgSocket }>(null as any);
+export type SessionFocus = { projectId: string; sessionId: string };
+export const AppCtx = createContext<{
+  projectId: string;
+  view: View;
+  setView: (v: View) => void;
+  sessionFocus: SessionFocus | null;
+  focusSession: (sessionId: string) => void;
+  socket: CgSocket;
+}>(null as any);
 
 export function Shell() {
   const qc = useQueryClient();
   const [view, setView] = useState<View>("board");
   const [projectId, setProjectId] = useState<string | null>(null);
+  const [sessionFocus, setSessionFocus] = useState<SessionFocus | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+
+  // Session ids are project-local UI targets. Keeping the project alongside
+  // the id prevents a project switch from opening a stale pane by accident.
+  const focusSession = useCallback((sessionId: string) => {
+    if (!projectId) return;
+    setSessionFocus({ projectId, sessionId });
+    setView("terminal");
+  }, [projectId]);
 
   const socket = useMemo(() => connectWs(ev => {
     if (ev.t === "card" || ev.t === "cardDeleted") qc.invalidateQueries({ queryKey: ["cards"] });
@@ -88,7 +105,7 @@ export function Shell() {
             </span>
           </div>
           {active && projectId ? (
-            <AppCtx.Provider value={{ projectId, view, setView, socket }}>
+            <AppCtx.Provider value={{ projectId, view, setView, sessionFocus, focusSession, socket }}>
               {view === "board" && <Board project={active} />}
               {view === "terminal" && <TerminalView project={active} />}
               {view === "diff" && <div style={{ display: "grid", placeItems: "center", flex: 1, color: "var(--dim)" }}>nothing to review</div>}

@@ -1,15 +1,20 @@
-import React, { useContext, useState } from "react";
+import React, { useContext, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Project, SessionMeta, Worktree } from "@codegent/protocol";
+import type { Card, Project, SessionMeta, Worktree } from "@codegent/protocol";
 import { api } from "../api";
+import { railSessionEntries } from "../projection";
 import { AppCtx } from "./Shell";
 import { SessionRail } from "./SessionRail";
 import { GhosttyTerm } from "./GhosttyTerm";
 
+const addPane = (open: string[], id: string): string[] =>
+  open.includes(id) ? open : open.length < 2 ? [...open, id] : [open[1]!, id];
+
 export function TerminalView({ project }: { project: Project }) {
-  const { projectId } = useContext(AppCtx);
+  const { projectId, sessionFocus, focusSession } = useContext(AppCtx);
   const qc = useQueryClient();
   const sessions = useQuery({ queryKey: ["sessions", projectId], queryFn: () => api.get<SessionMeta[]>(`/api/projects/${projectId}/sessions`) });
+  const cards = useQuery({ queryKey: ["cards", projectId], queryFn: () => api.get<Card[]>(`/api/projects/${projectId}/cards`) });
   const worktrees = useQuery({ queryKey: ["worktrees", projectId], queryFn: () => api.get<Worktree[]>(`/api/projects/${projectId}/worktrees`) });
   const [open, setOpen] = useState<string[]>([]);       // ≤2 pane sids
   const [focused, setFocused] = useState<string | null>(null);
@@ -22,9 +27,28 @@ export function TerminalView({ project }: { project: Project }) {
   if (prevPid !== projectId) { setPrevPid(projectId); setOpen([]); setFocused(null); setErr(null); }
 
   const show = (id: string) => {
-    setOpen(prev => prev.includes(id) ? prev : prev.length < 2 ? [...prev, id] : [prev[1], id]);
+    setOpen(prev => addPane(prev, id));
     setFocused(id);
+    focusSession(id);
   };
+
+  // Board/Details deep links arrive while TerminalView is unmounted. Apply
+  // the project-scoped target after mount; a same-id click still produces a
+  // fresh target object, so it also works after navigating away and back.
+  useEffect(() => {
+    if (!sessionFocus || sessionFocus.projectId !== projectId) return;
+    setOpen(prev => addPane(prev, sessionFocus.sessionId));
+    setFocused(sessionFocus.sessionId);
+  }, [projectId, sessionFocus]);
+
+  const railEntries = useMemo(
+    () => railSessionEntries(sessions.data ?? [], cards.data ?? []),
+    [sessions.data, cards.data],
+  );
+  const replayablePrevious = useMemo(
+    () => new Set(railEntries.filter(entry => entry.previous).map(entry => entry.session.id)),
+    [railEntries],
+  );
 
   const openNew = async (t: { kind: "main" } | { kind: "worktree"; id: string } | { kind: "new"; name: string; base?: string }) => {
     setErr(null);
@@ -51,7 +75,7 @@ export function TerminalView({ project }: { project: Project }) {
   return (
     <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
       <SessionRail sessions={sessions.data ?? []} worktrees={worktrees.data ?? []}
-        openIds={open} focusedId={focused} onPick={show} onNew={openNew} />
+        cards={cards.data ?? []} openIds={open} focusedId={focused} onPick={show} onNew={openNew} />
       <div style={{ flex: 1, display: "flex", minWidth: 0, position: "relative" }}>
         {err && (
           <div style={{ position: "absolute", top: 10, left: 12, right: 12, zIndex: 20, fontSize: 11, color: "var(--red)", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, padding: "6px 10px" }}>
@@ -66,7 +90,15 @@ export function TerminalView({ project }: { project: Project }) {
         {open.map((sid, i) => (
           <React.Fragment key={sid}>
             {i > 0 && <div style={{ width: 3, cursor: "col-resize", background: "var(--surface-2)" }} />}
-            <GhosttyTerm sid={sid} focused={focused === sid} onFocus={() => setFocused(sid)} />
+            <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+              {replayablePrevious.has(sid) && (
+                <div data-previous-session-header
+                  style={{ flexShrink: 0, padding: "3px 9px", borderBottom: "1px solid var(--surface-2)", background: "var(--bg-deep)", color: "var(--dim)", fontSize: 10, fontWeight: 650, letterSpacing: ".65px", textTransform: "uppercase" }}>
+                  previous session
+                </div>
+              )}
+              <GhosttyTerm sid={sid} focused={focused === sid} readOnly={replayablePrevious.has(sid)} onFocus={() => show(sid)} />
+            </div>
           </React.Fragment>
         ))}
       </div>

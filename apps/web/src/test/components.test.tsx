@@ -2,9 +2,10 @@ import React from "react";
 import { describe, expect, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { Card } from "@codegent/protocol";
+import type { Card, SessionMeta } from "@codegent/protocol";
 import { CardView, destructiveActionFor } from "../components/Card";
 import { Details, sendBackComments } from "../components/Details";
+import { SessionRail } from "../components/SessionRail";
 
 const base: Card = {
   id: 1,
@@ -63,6 +64,29 @@ describe("CardView state grammar", () => {
   });
 });
 
+test("SessionRail renders distinct metadata-only agent rows above shells", () => {
+  const sessions: SessionMeta[] = [
+    { id: "shell", projectId: "p", kind: "shell", title: "main", cwd: "/tmp", worktreeId: null, live: true, createdAt: 1, adapterSessionId: null, attemptId: null },
+    { id: "claude", projectId: "p", kind: "agent", title: "Claude card", cwd: "/tmp/c1", worktreeId: "w1", live: true, createdAt: 2, adapterSessionId: null, attemptId: 1 },
+    { id: "codex", projectId: "p", kind: "agent", title: "Codex card", cwd: "/tmp/c2", worktreeId: "w2", live: true, createdAt: 3, adapterSessionId: null, attemptId: 2 },
+  ];
+  const html = renderToStaticMarkup(
+    <SessionRail
+      sessions={sessions}
+      cards={[base, { ...base, id: 2, title: "Codex card", agent: "codex", attemptId: 2 }]}
+      worktrees={[]}
+      openIds={[]}
+      focusedId={null}
+      onPick={() => {}}
+      onNew={() => {}}
+    />,
+  );
+  expect(html).toContain('data-agent-glyph="claude"');
+  expect(html).toContain('data-agent-glyph="codex"');
+  expect(html.indexOf("Claude card")).toBeLessThan(html.indexOf("main"));
+  expect(html.indexOf("Codex card")).toBeLessThan(html.indexOf("main"));
+});
+
 describe("Details", () => {
   test("normalizes optional Send back comments", () => {
     expect(sendBackComments("   ")).toEqual([]);
@@ -71,12 +95,17 @@ describe("Details", () => {
 
   test("blank Send back stays enabled and title/body fields expose id and name", () => {
     const client = new QueryClient();
+    client.setQueryData(["sessions", "p"], [{
+      id: "agent-1", projectId: "p", kind: "agent", title: "Task", cwd: "/tmp",
+      worktreeId: null, live: true, createdAt: 1_000, adapterSessionId: null, attemptId: 1,
+    }]);
     const html = renderToStaticMarkup(
       <QueryClientProvider client={client}>
         <Details
           card={{ ...base, phase: "review", workingSub: null, reviewSub: "ready" }}
           projectId="p"
           sendBack
+          onSession={() => {}}
           onClose={() => {}}
           onChanged={() => {}}
           onError={() => {}}
@@ -90,5 +119,6 @@ describe("Details", () => {
     const button = html.match(/<button[^>]*>Send comments<\/button>/)?.[0];
     expect(button).toBeDefined();
     expect(button).not.toContain("disabled");
+    expect(html).toContain('data-session-link="agent-1"');
   });
 });

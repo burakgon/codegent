@@ -1,8 +1,8 @@
 import React, { useContext, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Card as CardT, Project } from "@codegent/protocol";
+import type { Card as CardT, Project, SessionMeta } from "@codegent/protocol";
 import { api } from "../api";
-import { columnOf, interruptedMessage, type BoardColumn } from "../projection";
+import { cardRoutesToTerminal, columnOf, interruptedMessage, terminalSessionForCard, type BoardColumn } from "../projection";
 import { AppCtx } from "./Shell";
 import { CardView } from "./Card";
 import { Details } from "./Details";
@@ -20,7 +20,7 @@ const COLUMNS: { id: BoardColumn; label: string }[] = [
 type DrawerState = { cardId: number; sendBack: boolean } | null;
 
 export function Board({ project }: { project: Project }) {
-  const { projectId } = useContext(AppCtx);
+  const { projectId, focusSession } = useContext(AppCtx);
   const qc = useQueryClient();
   const [notice, setNotice] = useState<string | null>(null);
   const [drawer, setDrawer] = useState<DrawerState>(null);
@@ -31,6 +31,10 @@ export function Board({ project }: { project: Project }) {
   const cards = useQuery({
     queryKey: ["cards", projectId],
     queryFn: () => api.get<CardT[]>(`/api/projects/${projectId}/cards`),
+  });
+  const sessions = useQuery({
+    queryKey: ["sessions", projectId],
+    queryFn: () => api.get<SessionMeta[]>(`/api/projects/${projectId}/sessions`),
   });
   const interrupted = useQuery({
     queryKey: ["interrupted", projectId],
@@ -143,8 +147,9 @@ export function Board({ project }: { project: Project }) {
                 <span style={{ padding: "1px 7px", borderRadius: 999, background: "var(--surface-2)", color: "var(--meta)", fontSize: 9.5, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{list.length}</span>
                 {column.id === "running" && <span data-slots style={{ marginLeft: "auto", padding: "1px 7px", border: "1px solid var(--border)", borderRadius: 999, background: "var(--surface)", color: activeSlots >= project.workerLimit ? "var(--amber)" : "var(--green)", fontSize: 9.5, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{activeSlots}/{project.workerLimit}</span>}
               </div>
-              {list.map((card, index) => (
-                <CardView key={card.id} card={card} column={column.id} now={now}
+              {list.map((card, index) => {
+                const terminal = cardRoutesToTerminal(card) ? terminalSessionForCard(card, sessions.data ?? []) : null;
+                return <CardView key={card.id} card={card} column={column.id} now={now}
                   queuePosition={column.id === "queue" ? index + 1 : undefined}
                   draggable={column.id === "queue"}
                   onDragStart={column.id === "queue" ? event => {
@@ -160,10 +165,11 @@ export function Board({ project }: { project: Project }) {
                   } : undefined}
                   onDrop={column.id === "queue" ? event => void dropQueueCard(event, card.id) : undefined}
                   onDragEnd={() => setDragId(null)}
+                  onOpenSession={terminal ? () => focusSession(terminal.id) : undefined}
                   onChanged={invalidate} onError={fail}
                   onDetails={sendBack => setDrawer({ cardId: card.id, sendBack: !!sendBack })}
-                  onDiscarded={setDiscardedId} />
-              ))}
+                  onDiscarded={setDiscardedId} />;
+              })}
               {column.id === "queue" && <Composer onCreate={(title, agent) => create.mutate({ title, agent })} />}
               {column.id === "done" && cancelledCount > 0 && (
                 <div style={{ marginTop: 8, padding: "5px 8px", borderRadius: 6, background: "var(--surface)", color: "var(--dim)", fontSize: 10 }}>{cancelledCount} cancelled</div>
@@ -173,7 +179,7 @@ export function Board({ project }: { project: Project }) {
         })}
       </div>
 
-      {selected && drawer && <Details card={selected} projectId={projectId} sendBack={drawer.sendBack} onClose={() => setDrawer(null)} onChanged={invalidate} onError={fail} />}
+      {selected && drawer && <Details card={selected} projectId={projectId} sendBack={drawer.sendBack} onSession={focusSession} onClose={() => setDrawer(null)} onChanged={invalidate} onError={fail} />}
 
       {discardedId !== null && (
         <div role="status" style={{ position: "absolute", right: 14, bottom: 14, zIndex: 35, display: "flex", alignItems: "center", gap: 12, padding: "8px 10px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface)", boxShadow: "0 10px 30px var(--bg-deep)", color: "var(--text-2)", fontSize: 11 }}>
