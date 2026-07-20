@@ -370,6 +370,7 @@ export class UniversalAdapter implements AgentAdapter {
       return {
         sessionMeta: meta,
         settingsDir: dir,
+        ...(sess.exited ? { exited: sess.exited } : {}),
         latestDetectState: () => stopped ? null : latestDetected,
         resetDispatchState,
         markTaskSubmitted,

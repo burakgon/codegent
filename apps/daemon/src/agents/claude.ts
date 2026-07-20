@@ -182,7 +182,8 @@ export class ClaudeAdapter implements AgentAdapter {
     // Persist as soon as open exposes the pgroup leader, before readiness and
     // prompt injection can hold spawn() pending. Engine registration refreshes
     // this snapshot and wires normal-exit cleanup once spawn fully resolves.
-    recordProcessGroup(dir, ptys.get(meta.id)?.pid ?? 0, ctx.dispatch.id);
+    const session = ptys.get(meta.id);
+    recordProcessGroup(dir, session?.pid ?? 0, ctx.dispatch.id);
 
     await injectTaskPrompt(
       ptys,
@@ -198,7 +199,11 @@ export class ClaudeAdapter implements AgentAdapter {
       this.timing,
     );
 
-    return { sessionMeta: meta, settingsDir: dir };
+    return {
+      sessionMeta: meta,
+      settingsDir: dir,
+      ...(session?.exited ? { exited: session.exited } : {}),
+    };
   }
 
   onHook(_sessionId: string, event: unknown): AdapterSignal[] {

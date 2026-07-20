@@ -133,6 +133,57 @@ describe("manual override detection watchdog", () => {
     expect(events).toEqual([]);
   });
 
+  test("R2 regression: suppressed agreement clears and later disagreement emits again", () => {
+    let now = 80_000;
+    const events: DomainEvent[] = [];
+    const watchdog = new Watchdog({
+      clock: () => now,
+      thresholdMs: 1_000,
+      emit: event => events.push(event),
+    });
+    const manual = { state: "running", since: 80_000 } as const;
+
+    watchdog.tick([{
+      cardId: 23,
+      manual,
+      detected: null,
+      suppressed: { intent: "permission", since: 80_000 },
+    }]);
+    now = 81_001;
+    watchdog.tick([{
+      cardId: 23,
+      manual,
+      detected: null,
+      suppressed: { intent: "permission", since: 80_000 },
+    }]);
+    watchdog.tick([{
+      cardId: 23,
+      manual,
+      detected: null,
+      suppressed: { intent: "flag-clear", since: 81_001 },
+    }]);
+    watchdog.tick([{
+      cardId: 23,
+      manual,
+      detected: null,
+      suppressed: { intent: "question", since: 81_001 },
+    }]);
+    now = 82_002;
+    watchdog.tick([{
+      cardId: 23,
+      manual,
+      detected: null,
+      suppressed: { intent: "question", since: 81_001 },
+    }]);
+
+    expect(events).toEqual([
+      { t: "notice", cardId: 23, kind: "mismatch" },
+      { t: "notice-clear", cardId: 23, kind: "mismatch" },
+      { t: "notice", cardId: 23, kind: "mismatch" },
+    ]);
+    expect(JSON.stringify(events)).not.toMatch(/text|message|content|screen|terminal/i);
+  });
+
   test("persistent needs-input-versus-working disagreement uses the inverse rule", () => {
     let now = 30_000;
     const events: DomainEvent[] = [];

@@ -119,7 +119,11 @@ class FakeAdapter implements AgentAdapter {
       projectId: ctx.project.id, cwd: ctx.worktreePath, title: ctx.card.title,
       worktreeId: ctx.attempt.worktreeId, kind: "agent", attemptId: ctx.attempt.id,
     });
-    return { sessionMeta: meta, settingsDir: "/tmp/fake-settings" };
+    return {
+      sessionMeta: meta,
+      settingsDir: "/tmp/fake-settings",
+      exited: this.ptys.all.get(meta.id)!.exited,
+    };
   }
   onHook(_sessionId: string, _event: unknown): AdapterSignal[] {
     return [];
@@ -220,6 +224,23 @@ const agentSessionId = (w: World, cardId: number): string => {
   ).get(c.attemptId) as any;
   return row.id;
 };
+
+function exitBeforeSpawnRegistration(
+  w: World,
+  adapter: FakeAdapter,
+  code: number,
+  adapterSessionId: string | null,
+): void {
+  const spawn = adapter.spawn.bind(adapter);
+  adapter.spawn = async (ctx) => {
+    const result = await spawn(ctx);
+    ctx.emitSignal?.({ s: "session-started", adapterSessionId });
+    const session = w.ptys.all.get(result.sessionMeta.id)!;
+    w.ptys.exit(result.sessionMeta.id, code);
+    await session.exited;
+    return result;
+  };
+}
 
 // ---------------------------------------------------------------------------
 // R1 scheduling
@@ -509,21 +530,41 @@ test("universal process exit without task_complete uses the existing crash path"
   expect(dispatchOf(w.db, c.id).status).toBe("failed");
 });
 
+test("R1 regression: premium clean exit before spawn registration is not crashed", async () => {
+  const w = await makeWorld();
+  const c = card(w, "claude clean exit before observer");
+  exitBeforeSpawnRegistration(w, w.adapter, 0, `claude-${c.id}`);
+
+  await w.engine.start(c.id);
+  await Promise.resolve();
+
+  const clean = getCard(w.db, c.id)!;
+  expect(clean.workingSub).toBe("running");
+  expect(clean.errorKind).toBeNull();
+  expect(dispatchOf(w.db, c.id).status).toBe("running");
+});
+
+test("R1 regression: premium nonzero exit before spawn registration still crashes", async () => {
+  const w = await makeWorld();
+  const c = card(w, "claude crash before observer");
+  exitBeforeSpawnRegistration(w, w.adapter, 17, `claude-${c.id}`);
+
+  await w.engine.start(c.id);
+  await Promise.resolve();
+
+  const failed = getCard(w.db, c.id)!;
+  expect(failed.workingSub).toBe("error");
+  expect(failed.errorKind).toBe("crashed");
+  expect(dispatchOf(w.db, c.id).status).toBe("failed");
+});
+
 test("A2: universal exit before spawn registration is reconciled through the crash path", async () => {
   const w = await makeWorld({ universal: true });
   const c = card(w, "gemini exits before observer", { agent: "gemini" });
-  const adapter = w.universal!;
-  const spawn = adapter.spawn.bind(adapter);
-  adapter.spawn = async (ctx) => {
-    const result = await spawn(ctx);
-    ctx.emitSignal?.({ s: "session-started", adapterSessionId: null });
-    const session = w.ptys.all.get(result.sessionMeta.id)!;
-    w.ptys.exit(result.sessionMeta.id, 0);
-    await session.exited;
-    return result; // registerSpawn now observes an already-dead PTY
-  };
+  exitBeforeSpawnRegistration(w, w.universal!, 0, null);
 
   await w.engine.start(c.id);
+  await Promise.resolve();
 
   const failed = getCard(w.db, c.id)!;
   expect(failed.workingSub).toBe("error");
@@ -569,7 +610,7 @@ test("B1: universal manual-running versus detected idle emits one mismatch after
   expect(getCard(w.db, c.id)!.inputKind).toBeNull();
 });
 
-test("B2: Claude suppressed permission intent gives the watchdog premium-tier recourse", async () => {
+test("B2 regression: suppressed permission-to-question change stays single-emit", async () => {
   const w = await makeWorld({ mismatchWatchdogMs: 1_000 });
   const c = card(w, "claude permission override");
   const dispatch = await toRunning(w, c);
@@ -578,6 +619,12 @@ test("B2: Claude suppressed permission intent gives the watchdog premium-tier re
   w.engine.handleSignal(dispatch, { s: "flag", kind: "permission" });
   expect(getCard(w.db, c.id)!.inputKind).toBeNull(); // override still owns display state
   w.engine.interval();
+  w.advance(1_001);
+  w.engine.interval();
+  w.engine.interval();
+
+  // This remains one continuous manual-running-versus-waiting disagreement.
+  w.engine.handleSignal(dispatch, { s: "flag", kind: "question" });
   w.advance(1_001);
   w.engine.interval();
   w.engine.interval();

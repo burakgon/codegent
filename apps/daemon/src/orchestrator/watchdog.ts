@@ -147,11 +147,15 @@ function disagreement(observation: WatchdogObservation): Mismatch | null {
 
 function sameMismatch(a: Mismatch, b: Mismatch): boolean {
   if (a.manual !== b.manual || a.manualSince !== b.manualSince) return false;
-  if (a.source.kind !== b.source.kind || a.source.since !== b.source.since) return false;
+  if (a.source.kind !== b.source.kind) return false;
+  // Suppressed permission/question/silent intents all mean the same direction
+  // of disagreement with manual running (and flag-clear is the same inverse
+  // disagreement with manual needs-input). Their sub-kind/timestamp may change
+  // while attention is continuously suppressed; keep the existing emit latch.
+  if (a.source.kind === "suppressed" && b.source.kind === "suppressed") return true;
+  if (a.source.since !== b.source.since) return false;
   return a.source.kind === "detected" && b.source.kind === "detected"
-    ? a.source.state === b.source.state
-    : a.source.kind === "suppressed" && b.source.kind === "suppressed"
-      && a.source.intent === b.source.intent;
+    && a.source.state === b.source.state;
 }
 
 function disagrees(manual: MarkState, detected: DetectStateSnapshot["state"]): boolean {

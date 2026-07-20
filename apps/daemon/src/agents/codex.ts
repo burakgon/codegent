@@ -296,7 +296,8 @@ export class CodexAdapter implements AgentAdapter {
     // Persist as soon as open exposes the pgroup leader, before readiness and
     // prompt injection can hold spawn() pending. Engine registration refreshes
     // this snapshot and wires normal-exit cleanup once spawn fully resolves.
-    recordProcessGroup(home, ptys.get(meta.id)?.pid ?? 0, ctx.dispatch.id);
+    const session = ptys.get(meta.id);
+    recordProcessGroup(home, session?.pid ?? 0, ctx.dispatch.id);
 
     await injectTaskPrompt(
       ptys,
@@ -316,7 +317,11 @@ export class CodexAdapter implements AgentAdapter {
     // `sweepSettingsDirs` GCs it once the dispatch is terminal. Durable
     // rollouts live behind the sessions symlink in the shared store, which
     // the GC exempts by name (CODEX_HOME_DIRNAME).
-    return { sessionMeta: meta, settingsDir: home };
+    return {
+      sessionMeta: meta,
+      settingsDir: home,
+      ...(session?.exited ? { exited: session.exited } : {}),
+    };
   }
 
   onHook(sessionId: string, event: unknown): AdapterSignal[] {

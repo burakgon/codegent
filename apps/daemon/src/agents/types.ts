@@ -60,6 +60,10 @@ export interface DetectStateSnapshot {
 export type SpawnResult = {
   sessionMeta: SessionMeta;
   settingsDir: string;
+  /** The exact PTY exit result captured while the adapter still owns the live
+   * session reference. This closes the readiness-to-engine-registration race:
+   * the manager may have reaped the session before the engine can call get(). */
+  exited?: Promise<number>;
   /** Universal sessions expose current detection without agent identity,
    * rule ids, or any terminal content. Premium adapters omit it. */
   latestDetectState?: () => DetectStateSnapshot | null;

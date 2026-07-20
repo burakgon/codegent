@@ -784,9 +784,18 @@ export class Engine {
     const sess = this.deps.ptys.get(res.sessionMeta.id);
     if (!sess) {
       // The PTY can exit after adapter readiness but before this observer is
-      // attached. Reconcile that already-dead fact through the ordinary exit
-      // path immediately; its dispatch/card guards keep this idempotent.
-      this.sessionExited(dispatchId, 1);
+      // attached. The adapter retained the same exit promise a normally-wired
+      // observer consumes, so reconcile its REAL code through the ordinary
+      // transition. A nonzero fallback is reserved for a PTY implementation
+      // that genuinely cannot expose an exit result after reaping; crash-neutral
+      // zero would reintroduce the universal stuck-running wedge.
+      if (res.exited) {
+        void res.exited
+          .then((code) => this.sessionExited(dispatchId, code))
+          .catch(() => this.sessionExited(dispatchId, 1));
+      } else {
+        this.sessionExited(dispatchId, 1);
+      }
       return;
     }
     // Adapters record this pgroup immediately after PTY open. Refresh the
@@ -806,7 +815,9 @@ export class Engine {
     // Crash detection (§9.1): every agent-session exit is evaluated against
     // the dispatch it was spawned for, alias-resolved AT EXIT TIME (a live
     // send-back may have moved the session onto a newer dispatch).
-    void sess.exited.then((code) => this.sessionExited(dispatchId, code)).catch(() => {});
+    void (res.exited ?? sess.exited)
+      .then((code) => this.sessionExited(dispatchId, code))
+      .catch(() => this.sessionExited(dispatchId, 1));
   }
 
   /**
