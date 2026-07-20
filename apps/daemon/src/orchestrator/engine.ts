@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { existsSync, readdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { Attempt, Card, Dispatch, DomainEvent, InputKind, MarkState, Project, Worktree } from "@codegent/protocol";
 import {
   dispatchEffect,
@@ -420,7 +420,7 @@ export class Engine {
     while (this.inflight.size > 0) await Promise.all([...this.inflight]);
   }
 
-  private saveCard(card: Card, extra: Partial<Pick<Card, "worktreeId" | "attemptId">> = {}): Card {
+  private saveCard(card: Card, extra: Partial<Pick<Card, "worktreeId" | "attemptId" | "mergeSha">> = {}): Card {
     const saved = updateCard(this.deps.db, card.id, {
       phase: card.phase, workingSub: card.workingSub, errorKind: card.errorKind,
       reviewSub: card.reviewSub, inputKind: card.inputKind, inputSince: card.inputSince,
@@ -462,7 +462,7 @@ export class Engine {
   }
 
   /** Persist a machine-produced card and fan it out as a domain event. */
-  private persist(card: Card, extra: Partial<Pick<Card, "worktreeId" | "attemptId">> = {}): Card {
+  private persist(card: Card, extra: Partial<Pick<Card, "worktreeId" | "attemptId" | "mergeSha">> = {}): Card {
     const saved = this.saveCard(card, extra);
     this.deps.events.emit({ t: "card", card: saved });
     return saved;
@@ -505,13 +505,16 @@ export class Engine {
     return saved;
   }
 
-  /** Chain project-wide git work: each entrant waits for the previous one,
+  /** Chain repo-wide git work: each entrant waits for the previous one,
    * success or failure. Card-level mutexes stay as-is; this only serializes
-   * the SHARED-checkout zone. */
-  private withProjectGit<T>(projectId: string, run: () => Promise<T>): Promise<T> {
-    const prev = this.projectGitLocks.get(projectId) ?? Promise.resolve();
+   * the SHARED-checkout zone. KEYED BY RESOLVED REPO PATH, not project id —
+   * two project rows may point at the same repository and must still share
+   * one lock (verify R-C1). */
+  private withProjectGit<T>(repoPath: string, run: () => Promise<T>): Promise<T> {
+    const key = resolve(repoPath);
+    const prev = this.projectGitLocks.get(key) ?? Promise.resolve();
     const next = prev.then(run, run);
-    this.projectGitLocks.set(projectId, next.catch(() => {}));
+    this.projectGitLocks.set(key, next.catch(() => {}));
     return next;
   }
 
@@ -1442,7 +1445,7 @@ export class Engine {
     // serialized (review A1): two cards' merges share the main-checkout index;
     // without this lock B's preflight could reset A's staged squash and A
     // would record an empty "merge" as done. ----
-    const { sha: squashSha, empty: emptySquash } = await this.withProjectGit(card.projectId, async () => {
+    const { sha: squashSha, empty: emptySquash } = await this.withProjectGit(repo, async () => {
       // RE-validate INSIDE the lock: while this merge queued, the previous
       // merge's cascade may have marked the card stale — its git work must
       // never run against a no-longer-ready card (the A1 regression test's
@@ -1454,6 +1457,10 @@ export class Engine {
       if (onBranch !== wt.base) {
         throw new UserActionError(`main checkout is on '${onBranch}' — check out '${wt.base}' to merge`);
       }
+      // Pre-merge base tip: the done-card diff is exactly preTip..tip in EVERY
+      // mode (first-parent truth for merge commits, full range for rebase's
+      // multi-commit replays — verify R-Imp2).
+      const preTip = (await git(repo, "rev-parse", "HEAD")).trim();
       if ((await git(repo, "diff", "--cached", "--name-only")).trim() !== "") {
         throw new UserActionError("main checkout has staged changes — commit or unstage them to merge");
       }
@@ -1498,7 +1505,15 @@ export class Engine {
       // becomes 0/0 and follow-ups continue from the merged state. update-ref
       // bypasses the checked-out-in-worktree guard; the worktree is archived
       // right below. (No-op for rebase mode, where the branch IS the tip.)
-      await git(repo, "update-ref", `refs/heads/${wt.branch}`, sha);
+      // POST-COMMIT failures must not orphan a landed merge (verify R-C4):
+      // once the base moved, ref-reset failure degrades to a warning and the
+      // card still records done — an unreset branch is recoverable noise, an
+      // unrecorded merge is corruption.
+      try {
+        await git(repo, "update-ref", `refs/heads/${wt.branch}`, sha);
+      } catch (e) {
+        console.warn(`[engine] branch ref reset failed after merge of card ${card.id}:`, e instanceof Error ? e.message : e);
+      }
 
       // Transitions + the cascade stay INSIDE the lock: a queued sibling merge
       // re-validates only after THIS merge's cascade has marked it stale, so
@@ -1508,12 +1523,12 @@ export class Engine {
       const m1 = transition(fresh, { t: "merge-start" }, this.deps.clock());
       this.persist(m1.card); // review.merging (event)
       const m2 = transition(m1.card, { t: "merged" }, this.deps.clock());
-      this.persist(m2.card); // done (event)
-      // The recorded merge fact (review A7): the done-card diff renders from
-      // mergeSha because the branch-ref reset just zeroed base...branch. An
-      // empty squash records null — the card added nothing, empty diff is truth.
-      const done = updateCard(db, cardId, { mergeSha: empty ? null : sha });
-      this.deps.events.emit({ t: "card", card: done });
+      // The recorded merge fact (review A7 / verify R-Imp2+R-Imp3): the done
+      // card diff renders from this RANGE because the branch-ref reset just
+      // zeroed base...branch. Recorded in the SAME row write as done — a
+      // crash can never persist done without its diff identity. Empty squash
+      // records null: the card added nothing and an empty diff is the truth.
+      const done = this.persist(m2.card, { mergeSha: empty ? null : `${preTip}..${sha}` });
       // Merges are recorded facts (spec) — a timeline row, Details drawer only.
       appendTimeline(db, cardId, "merge", `merged (${mode}) ${wt.branch} into ${wt.base} @ ${sha.slice(0, 12)}`);
       clearReviewed(db, cardId); // viewed-marks die with the review
@@ -1763,7 +1778,10 @@ export class Engine {
         // the truth so the card becomes conflict (visible, cancellable,
         // resolvable) instead of stranded in updating forever.
         if (card.reviewSub === "updating") {
-          const res = this.driveInternal(card, { t: "update-result", ok: false });
+          if (this.activeActions.get(r.id)) continue;
+          const cur = getCard(db, r.id);
+          if (!cur || cur.reviewSub !== "updating") continue; // settled meanwhile
+          const res = this.driveInternal(cur, { t: "update-result", ok: false });
           if (res) this.persist(res.card);
           setWorktreeSync(db, wt.id, "conflicted", wt.behindCount);
         }
@@ -1774,13 +1792,21 @@ export class Engine {
         // tree counts as resolved (review A4): leftover tracked edits would
         // silently miss the merge and die with the archive.
         if ((await git(wt.path, "status", "--porcelain", "-uno")).trim() !== "") continue;
-        const res = this.driveInternal(card, { t: "conflict-resolved" });
+        // RE-validate after the git awaits (verify R-Imp1): a cancel/merge
+        // may have landed meanwhile — never resurrect a terminal card.
+        if (this.activeActions.get(r.id)) continue;
+        const cur = getCard(db, r.id);
+        if (!cur || cur.phase !== "review" || cur.reviewSub !== "conflict") continue;
+        const res = this.driveInternal(cur, { t: "conflict-resolved" });
         if (!res) continue;
         const ready = this.persist(res.card);
         await this.reconcileAfterRebase(ready, wt.id);
       } else {
         // review.updating orphan (daemon restarted mid-update, rebase finished)
-        await this.finishCleanUpdate(card, wt.id, null);
+        if (this.activeActions.get(r.id)) continue;
+        const cur = getCard(db, r.id);
+        if (!cur || cur.reviewSub !== "updating") continue;
+        await this.finishCleanUpdate(cur, wt.id, null);
       }
     }
   }
@@ -1809,8 +1835,14 @@ export class Engine {
       if (!wt || wt.state !== "active" || !project) continue;
       try {
         const { behind } = await aheadBehind(project.path, wt.base, wt.branch);
-        if (behind > 0 && (card.reviewSub === "ready" || behind !== wt.behindCount)) {
-          const next = this.driveInternal(card, { t: "base-advanced", behind });
+        // RE-validate after the await (verify R-C3): a merge/update/cancel
+        // may have started or finished meanwhile — never persist a stale
+        // snapshot over fresher truth.
+        if (this.activeActions.get(r.id)) continue;
+        const cur = getCard(db, r.id);
+        if (!cur || cur.phase !== "review" || (cur.reviewSub !== "ready" && cur.reviewSub !== "stale")) continue;
+        if (behind > 0 && (cur.reviewSub === "ready" || behind !== wt.behindCount)) {
+          const next = this.driveInternal(cur, { t: "base-advanced", behind });
           if (next) {
             setWorktreeSync(db, wt.id, "behind", behind);
             this.persist(next.card);
@@ -1890,11 +1922,18 @@ export class Engine {
       card.prNumber !== null ? `pull request #${card.prNumber} merged` : "marked merged (recorded fact)");
     clearReviewed(db, cardId);
     // external-merged effects [kill-sessions, archive-worktree] — same dedupe
-    // as merged; then the base moved remotely? No: an external merge changes
-    // origin, and the LOCAL base moves only when the user pulls — cascade
-    // still recomputes siblings so a pulled base is caught promptly.
-    await this.applyArchive(done);
-    await this.cascadeStale(card.projectId, cardId);
+    // as merged. Archive+cascade run under the REPO lock (verify R-C2): an
+    // unserialized cascade here could stale-mark a sibling whose local merge
+    // is mid-git, failing its post-git transition.
+    const project = getProject(db, card.projectId);
+    if (project) {
+      await this.withProjectGit(project.path, async () => {
+        await this.applyArchive(done);
+        await this.cascadeStale(card.projectId, cardId);
+      });
+    } else {
+      await this.applyArchive(done);
+    }
     this.slotReleased();
   }
 

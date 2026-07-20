@@ -68,6 +68,15 @@ export function setWorktreeSync(db: Database, id: string, sync: Worktree["sync"]
 export async function archiveWorktree(db: Database, project: Project, id: string): Promise<void> {
   const row = db.query(`SELECT * FROM worktrees WHERE id = ?1`).get(id) as any;
   if (!row) throw new Error(`worktree ${id} not found`);
-  await git(project.path, "worktree", "remove", "--force", row.path);
+  try {
+    await git(project.path, "worktree", "remove", "--force", row.path);
+  } catch (e) {
+    // Removal and the row update are not one transaction: a crash between
+    // them leaves an active row for a gone directory, and every retry would
+    // fail forever (verify R-Imp4). A path that no longer exists IS removed —
+    // prune the registration and archive the row.
+    if (existsSync(row.path)) throw e;
+    await git(project.path, "worktree", "prune").catch(() => {});
+  }
   db.query(`UPDATE worktrees SET state = 'archived' WHERE id = ?1`).run(id);
 }

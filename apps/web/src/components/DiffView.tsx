@@ -308,6 +308,11 @@ export function DiffView() {
     setSendBackText("");
     setMergeMenu(false);
   }, [sel?.id]);
+  // Missed-event reconciliation (verify R-M3): if a selected card is already
+  // terminal (socket dropped the done/cancelled event), purge its queue here.
+  useEffect(() => {
+    if (sel && (sel.phase === "done" || sel.phase === "cancelled")) clearComments(sel.id);
+  }, [sel?.id, sel?.phase]);
 
   useSyncExternalStore(subscribeComments, commentsVersion, commentsVersion);
 
@@ -361,6 +366,7 @@ export function DiffView() {
     }
   };
   const sendBack = async () => {
+    if (sel?.reviewSub !== "ready") return; // card moved under the composer (verify R-M2)
     // One batch: every queued line comment (file:line-prefixed) + the general
     // note. The queue clears ONLY on success — a 409 (stale/conflict) must
     // never eat the reviewer's comments (review B4).
@@ -484,7 +490,7 @@ export function DiffView() {
         </div>
       </div>
 
-      {sendBackOpen && !readOnly && (
+      {sendBackOpen && !readOnly && sel.reviewSub === "ready" && (
         <div style={{ display: "flex", gap: 7, padding: "8px 12px", borderBottom: "1px solid var(--surface-2)" }}>
           <input autoFocus value={sendBackText} onChange={e => setSendBackText(e.target.value)}
             placeholder="What should change? (sent to the agent)"

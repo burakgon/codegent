@@ -238,9 +238,10 @@ async function handleApi(req: Request, url: URL, db: Database, ptys: PtyManager,
     // (VK), so base...branch is empty — render the RECORDED merge commit
     // instead (review A7). External/empty merges have no local sha and fall
     // back to base...branch (external keeps its ref until the user prunes).
-    const [diffBase, diffHead] = card.phase === "done" && card.mergeSha !== null
-      ? [`${card.mergeSha}^`, card.mergeSha]
-      : [wt.base, wt.branch];
+    const recorded = card.phase === "done" && card.mergeSha !== null && card.mergeSha.includes("..")
+      ? card.mergeSha.split("..") as [string, string]
+      : null;
+    const [diffBase, diffHead] = recorded ?? [wt.base, wt.branch];
     try {
       if (url.searchParams.get("summary")) {
         return json(await computeDiffSummary(project.path, diffBase, diffHead));

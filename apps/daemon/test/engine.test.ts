@@ -926,6 +926,7 @@ test("merge squashes onto base, resets the cg branch, kills sessions, archives t
   expect(getCard(w.db, c.id)!.phase).toBe("review");
   await sh(w.repo, "git", "checkout", "main");
 
+  const beforeSha = await sh(w.repo, "git", "rev-parse", "main");
   const evBefore = w.events.length;
   const liveAgent = agentSessionId(w, c.id);
   await w.engine.merge(c.id);
@@ -938,8 +939,9 @@ test("merge squashes onto base, resets the cg branch, kills sessions, archives t
   const branchSha = await sh(w.repo, "git", "rev-parse", wt.branch);
   expect(branchSha).toBe(mainSha); // VK: branch ref reset to the squash commit
   expect(await sh(w.repo, "git", "show", `main:feature.txt`)).toBe("shipped v2");
-  // A7: the merge fact records the squash commit — the done-card diff identity.
-  expect(getCard(w.db, c.id)!.mergeSha).toBe(mainSha);
+  // A7/R-Imp2: the merge fact records the preTip..tip RANGE — the done-card
+  // diff identity in every mode (first-parent truth, multi-commit rebases).
+  expect(getCard(w.db, c.id)!.mergeSha).toBe(`${beforeSha}..${mainSha}`);
 
   // Card done; sessions killed BEFORE the worktree archive; worktree gone.
   const done = getCard(w.db, c.id)!;

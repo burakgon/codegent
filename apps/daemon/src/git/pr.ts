@@ -63,7 +63,7 @@ export async function viewPr(run: CommandRunner, repoPath: string, ref: number |
   const res = await run(repoPath, [
     "gh", "pr", "view", String(ref), "--json", "number,url,state,statusCheckRollup",
   ]);
-  if (res.code !== 0) throw new Error(`gh pr view failed: ${res.stderr.trim() || res.code}`);
+  if (res.code !== 0) throw new Error(`gh pr view failed (exit ${res.code})`); // short status only (B2)
   const raw = JSON.parse(res.stdout) as {
     number: number; url: string; state: string;
     statusCheckRollup?: Array<Record<string, unknown>> | null;
