@@ -34,5 +34,8 @@ export function loadConfig(): { port: number; dataDir: string; token: string } {
       port++; // busy, try next
     }
   }
+  // NOTE: the discovery port file is written by the DAEMON once Bun.serve
+  // actually binds (daemon.ts) — writing it here would advertise a port
+  // nothing serves yet and invite a double-boot race (verify [high]).
   return { port, dataDir, token };
 }

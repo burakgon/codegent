@@ -206,3 +206,22 @@ describe("Details", () => {
     expect(html).toContain('data-session-link="agent-1"');
   });
 });
+
+test("P4: ProjectSheet renders both tabs, bootstrap fields, and the mode selector", async () => {
+  const { ProjectSheet } = await import("../components/ProjectSheet");
+  const html = renderToStaticMarkup(<ProjectSheet onDone={() => {}} />);
+  expect(html).toContain("Add a project");
+  expect(html).toContain("git clone");
+  expect(html).toContain("Worktree setup script");
+  expect(html).toContain("Copy into worktrees");
+  expect(html).toContain(">auto<");
+  expect(html).toContain(">host<");
+  expect(html).toContain("Base branch");
+});
+
+test("P4-T5: fmtBytes scales sanely", async () => {
+  const { fmtBytes } = await import("../components/Settings");
+  expect(fmtBytes(512 * 1024)).toBe("512 KB");
+  expect(fmtBytes(5 * 1024 * 1024)).toBe("5.0 MB");
+  expect(fmtBytes(2.5 * 1024 * 1024 * 1024)).toBe("2.50 GB");
+});

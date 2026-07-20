@@ -145,7 +145,7 @@ class FakePtys {
   }
 }
 
-const project: Project = { id: "p1", name: "proj", path: "/tmp/proj", baseBranch: "main", createdAt: 1, workerLimit: 1 };
+const project: Project = { id: "p1", name: "proj", path: "/tmp/proj", baseBranch: "main", createdAt: 1, workerLimit: 1, defaultAgent: null, setupScript: "", copyGlobs: [], mode: "auto" };
 const card: Card = {
   id: 7, projectId: "p1", title: "Fix the login bug", body: "Steps:\n1. reproduce\n2. fix",
   phase: "working", agent: "claude", worktreeId: "wt1", position: 1, createdAt: 1, updatedAt: 1,

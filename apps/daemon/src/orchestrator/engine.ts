@@ -13,6 +13,7 @@ import { deleteCard, getCard, updateCard } from "../store/cards";
 import { getProject, listProjects } from "../store/projects";
 import { clearReviewed, invalidateReviewed } from "../store/reviews";
 import { aheadBehind } from "../git/diff";
+import { bootstrapWorktree } from "../git/setup";
 import { createPr, ghAvailable, spawnRunner, viewPr, type CommandRunner, type GhUnavailableReason, type PrInfo } from "../git/pr";
 import {
   completeDispatch, createAttempt, createDispatch, failRunningAttempts, failRunningDispatches,
@@ -300,6 +301,8 @@ export interface EngineDeps {
   rematerializeWorktree?: (project: Project, worktree: Worktree) => Promise<void>;
   /** gh/git command seam for PR tracking; tests script it. Production = Bun.spawn. */
   prRunner?: CommandRunner;
+  /** Daemon data dir — worktree-setup logs land under <dataDir>/logs. */
+  dataDir?: string;
 }
 
 interface DispatchEnvelope {
@@ -650,6 +653,17 @@ export class Engine {
     const adapter = this.adapterFor(card.agent); // NotStartable → 409 at the API
     const project = getProject(this.deps.db, card.projectId);
     if (!project) throw new CardNotFound(`project ${card.projectId}`);
+    // §8: an empty repository (no commits) cannot host a worktree branch —
+    // block start with the spec's exact ask (route → 409, card untouched).
+    // SYNC spawn: startUnlocked must not await before the persist below —
+    // tick()'s slot accounting relies on the state flip being synchronous.
+    const headProbe = Bun.spawnSync({
+      cmd: ["git", "rev-parse", "--verify", "HEAD"],
+      cwd: project.path, stdout: "ignore", stderr: "ignore",
+    });
+    if (headProbe.exitCode !== 0) {
+      throw new UserActionError("first commit required — the repository has no commits yet");
+    }
     const next = transition(card, { t: "start" }, this.deps.clock()); // IllegalTransition → 409
     const generation = this.beginAction(cardId);
     // SYNC persist (before any await): R1's slot accounting must see it.
@@ -676,7 +690,7 @@ export class Engine {
     opts: { mode?: AttemptMode; extraPrompt?: string | null } = {},
   ): Promise<void> {
     const db = this.deps.db;
-    const mode = opts.mode ?? V02_MODE;
+    const mode = opts.mode ?? (project.mode as AttemptMode) ?? V02_MODE;
     // A fresh start supersedes any prior still-running attempt (user-stop →
     // requeue → restart): discarded, not failed — breaker-neutral.
     supersedeRunningAttempts(db, card.id);
@@ -701,6 +715,11 @@ export class Engine {
       }
       wt = r.wt;
       createdNew = r.created;
+      // §8 worktree bootstrap (copy-globs + setup script) runs HERE — after
+      // wt/createdNew are recorded, so a failing script reaches startFailed
+      // WITH rollback context (review B-Imp): a created worktree rolls back
+      // instead of stranding an active row + branch that block retries.
+      await this.bootstrapFresh(r, project);
       if (!this.ownsStarting(card.id, generation)) {
         await this.abandonLaunch(attempt.id, dispatch.id, false, createdNew && wt ? { project, wt } : null);
         return;
@@ -748,12 +767,12 @@ export class Engine {
     project: Project,
     card: Card,
     ownsStart: () => boolean,
-  ): Promise<{ wt: Worktree; created: boolean } | null> {
+  ): Promise<{ wt: Worktree; created: boolean; fresh: boolean } | null> {
     const db = this.deps.db;
     if (card.worktreeId) {
       const row = this.worktreeRow(card.worktreeId);
       if (row) {
-        if (row.state === "active" && existsSync(row.path)) return { wt: row, created: false };
+        if (row.state === "active" && existsSync(row.path)) return { wt: row, created: false, fresh: false };
         await git(project.path, "worktree", "prune").catch(() => {});
         if (!ownsStart()) return null;
         try {
@@ -771,11 +790,37 @@ export class Engine {
           return null;
         }
         db.query(`UPDATE worktrees SET state = 'active' WHERE id = ?1`).run(row.id);
-        return { wt: { ...row, state: "active" }, created: false };
+        // fresh: the re-added dir needs the same untracked bootstrap a brand
+        // new worktree gets (.env & co) — run by launch(), AFTER rollback
+        // context is recorded (review B-Imp).
+        return { wt: { ...row, state: "active" }, created: false, fresh: true };
       }
+      if (row) return { wt: row, created: false, fresh: false }; // unreachable guard; explicit
     }
     const create = this.deps.createWorktree ?? createWorktree;
-    return { wt: await create(db, project, { cardId: card.id, slugSource: card.title }), created: true };
+    const wt = await create(db, project, { cardId: card.id, slugSource: card.title });
+    return { wt, created: true, fresh: true };
+  }
+
+  /** Bootstrap a FRESH worktree dir. On failure of a RE-ADDED dir, remove
+   * the directory again (row stays active) so the NEXT start re-materializes
+   * and RETRIES the bootstrap — instead of reusing a half-prepared tree with
+   * fresh:false (verify: the re-add leg of B-Imp). */
+  private async bootstrapFresh(
+    r: { wt: Worktree; created: boolean; fresh: boolean },
+    project: Project,
+  ): Promise<void> {
+    if (!r.fresh) return;
+    try {
+      await bootstrapWorktree(project, r.wt, this.setupLogDir());
+    } catch (e) {
+      if (!r.created) await this.restoreRetainedWorktree(project, r.wt).catch(() => {});
+      throw e;
+    }
+  }
+
+  private setupLogDir(): string | undefined {
+    return this.deps.dataDir ? join(this.deps.dataDir, "logs") : undefined;
   }
 
   /** Undo only the directory re-added for a retained row. Its prior database
@@ -1284,6 +1329,9 @@ export class Engine {
         await this.abandonLaunch(prior.id, dispatch.id, false, null);
         return;
       }
+      // A re-materialized dir is FRESH — it needs the same copy-globs/setup
+      // as a launch would get (verify [high]: resume skipped bootstrap).
+      await this.bootstrapFresh(r, project);
       wt = r.wt;
       createdNew = r.created;
       if (!this.ownsStarting(cardId, generation)) {

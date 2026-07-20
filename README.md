@@ -1,35 +1,50 @@
 # codegent
 
-Browser-based AI coding-agent orchestrator. Pre-release — v0.2 orchestration.
+**A local, browser-based orchestrator for AI coding agents.** The terminal
+power of a real PTY, a kanban board that routes attention, and a review flow
+with real diffs — for Claude Code, Codex, Gemini CLI, and any other agent CLI,
+on your machine, with your subscriptions. No accounts, no cloud, no telemetry.
 
-## Develop
-
-Needs [Bun](https://bun.sh) ≥ 1.3.14. One-time setup first: the terminal
-renderer (`vendor/ghostty-web`) is a git submodule whose wasm + dist are
-built from source, which needs Zig 0.15.2 (exact) on PATH — the build pulls
-its own ~206MB ghostty checkout on first run. Build it *before* the root
-`bun install` (install copies the built package into node_modules); details
-and troubleshooting in `docs/research/ghostty-web-spike.md`.
+## Quick start
 
 ```sh
-git submodule update --init
-(cd vendor/ghostty-web && bun install && bun run build)
+curl -fsSL https://codegent.io/install | sh   # binary + PATH + user service
+codegent                                       # opens the board
 ```
 
-Then install and run the unchanged development commands:
+Already installed? `npx codegent-cli` launches the same binary from anywhere.
 
-```sh
-bun install
-bun run dev:daemon   # prints http://127.0.0.1:4666/?t=<token>
-bun run dev:web      # http://localhost:5666 — open it with ?t=<token>
+Then: add a project, drop a task card, watch an agent pick it up in a real
+terminal, answer its questions in that terminal, review the diff, merge.
+
+## What it does
+
+- **Board** — queue → running → waiting-for-input → review → done. Cards, not
+  chats. Auto-start with a worker limit; drag to reorder the queue.
+- **Real terminals** — every agent runs interactively in its own PTY,
+  streamed to the browser. Scrollback survives restarts.
+- **Universal agent tier** — content-free state detection (process tree, OSC
+  titles, screen manifests) tells the board when ANY recognized agent is
+  working, stuck, or waiting — without reading your terminal's content out.
+- **Review flow** — queue strip, file-by-file diff with viewed-marks, queued
+  line comments sent back to the agent in one batch, stale/conflict tracking
+  when the base moves, squash/merge/rebase, PR tracking via `gh`.
+- **Local-only** — binds localhost, token-authed. Remote access is your own
+  tunnel: see [docs/expose-safely.md](docs/expose-safely.md).
+
+## CLI
+
+```
+codegent                  start + open the board
+codegent doctor           environment checks
+codegent task add "…"     queue a card from the shell
+codegent service enable   keep it running (launchd / systemd --user)
 ```
 
-The v0.2 loop:
+## Principles
 
-1. Create a project from the absolute path to a Git repository.
-2. Add a Queue card with `claude` or `codex`; it auto-starts in a worktree with a live terminal.
-3. Answer questions in the terminal; when the agent calls `task_complete`, the card moves to In Review.
-4. Review the result, then choose **Merge** to move the card to Done.
-5. Each project has a worker limit of 1 by default; change `workerLimit` through `PATCH /api/projects/:id`.
+Terminal content never leaves the terminal — surfaces show state + elapsed
+time only. The board observes and routes; conversation happens in the
+terminal. Tasks are primary; worktrees are their shadow.
 
-Tests: `bun test` · License: AGPL-3.0
+License: AGPL-3.0. No telemetry.

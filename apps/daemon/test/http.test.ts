@@ -340,3 +340,62 @@ test("diff + reviewed-files: guards and viewed-marks roundtrip", async () => {
   const off = await (await fetch(`${base}/cards/${c.id}/reviewed-files`, { ...T, method: "PUT", body: JSON.stringify({ path: "src/a.ts", viewed: false }) })).json();
   expect(off.paths).toEqual([]);
 });
+
+test("P4: project settings PATCH is strict; path-complete is home-anchored; clone + git-init flows", async () => {
+  const H = { "x-codegent-token": "testtoken", "content-type": "application/json" };
+  const { mkdtempSync, writeFileSync, mkdirSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+
+  const p = await (await fetch(`${base}/projects`, { ...T, method: "POST", body: JSON.stringify({ name: "S", path: "/tmp", baseBranch: "main", skipGitCheck: true }) })).json();
+  // strict settings surface
+  const good = await fetch(`${base}/projects/${p.id}/settings`, { ...T, method: "PATCH", body: JSON.stringify({ defaultAgent: "codex", mode: "host", copyGlobs: [".env"], setupScript: "true" }) });
+  expect(good.status).toBe(200);
+  const saved = await good.json();
+  expect(saved.defaultAgent).toBe("codex");
+  expect(saved.mode).toBe("host");
+  expect((await fetch(`${base}/projects/${p.id}/settings`, { ...T, method: "PATCH", body: JSON.stringify({ mode: "yolo" }) })).status).toBe(400);
+  expect((await fetch(`${base}/projects/${p.id}/settings`, { ...T, method: "PATCH", body: JSON.stringify({ junk: 1 }) })).status).toBe(400);
+  expect((await fetch(`${base}/projects/nope/settings`, { ...T, method: "PATCH", body: JSON.stringify({ mode: "auto" }) })).status).toBe(404);
+
+  // path-complete: pure fn contract via the route — outside-home rejected
+  const out = await (await fetch(`${base.replace("/api", "")}/api/state/path-complete?q=/etc/`, T)).json();
+  expect(out.paths).toEqual([]);
+
+  // clone (file:// from a local fixture) + git-init one-click
+  const src = mkdtempSync(join(tmpdir(), "cg-src-"));
+  const shq = async (cwd: string, ...cmd: string[]) => { const pr = Bun.spawn({ cmd, cwd, stdout: "pipe", stderr: "pipe" }); if (await pr.exited !== 0) throw new Error("cmd failed"); };
+  await shq(src, "git", "init", "-b", "main");
+  await shq(src, "git", "config", "user.email", "t@t");
+  await shq(src, "git", "config", "user.name", "t");
+  writeFileSync(join(src, "a.txt"), "x");
+  await shq(src, "git", "add", "-A");
+  await shq(src, "git", "commit", "-m", "seed");
+  const dest = join(mkdtempSync(join(tmpdir(), "cg-dst-")), "cloned");
+  const cloned = await fetch(`${base}/projects`, { ...T, method: "POST", body: JSON.stringify({ name: "C", path: dest, clone: `file://${src}` }) });
+  expect(cloned.status).toBe(201);
+  expect((await cloned.json()).path).toBe(dest);
+
+  const plain = mkdtempSync(join(tmpdir(), "cg-plain-"));
+  const refused = await fetch(`${base}/projects`, { ...T, method: "POST", body: JSON.stringify({ name: "P", path: plain }) });
+  expect(refused.status).toBe(400);
+  expect((await refused.json()).canInit).toBe(true);
+  const inited = await fetch(`${base}/projects`, { ...T, method: "POST", body: JSON.stringify({ name: "P", path: plain, gitInit: true }) });
+  expect(inited.status).toBe(201);
+});
+
+test("P4-T5: agents probe + service status + sized worktrees + prune surfaces", async () => {
+  const agents = await (await fetch(`${base}/state/agents`, T)).json();
+  expect(Array.isArray(agents.agents)).toBe(true);
+  expect(agents.agents.some((a: any) => a.name === "claude")).toBe(true);
+  expect(agents.agents.every((a: any) => a.name !== "generic")).toBe(true);
+  const svc = await (await fetch(`${base}/state/service`, T)).json();
+  expect(["enabled", "disabled", "unsupported"]).toContain(svc.status);
+  // sized listing + prune guards on an empty project
+  const p = await (await fetch(`${base}/projects`, { ...T, method: "POST", body: JSON.stringify({ name: "Z", path: "/tmp", baseBranch: "main", skipGitCheck: true }) })).json();
+  const sized = await (await fetch(`${base}/projects/${p.id}/worktrees?sizes=1`, T)).json();
+  expect(sized).toEqual([]);
+  const pruned = await (await fetch(`${base}/projects/${p.id}/worktrees/archived`, { ...T, method: "DELETE" })).json();
+  expect(pruned.pruned).toBe(0);
+  expect((await fetch(`${base}/projects/nope/worktrees/archived`, { ...T, method: "DELETE" })).status).toBe(404);
+});

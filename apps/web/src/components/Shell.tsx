@@ -9,6 +9,8 @@ import { Board } from "./Board";
 import { TerminalView } from "./TerminalView";
 import { DiffView } from "./DiffView";
 import { Palette } from "./Palette";
+import { ProjectSheet } from "./ProjectSheet";
+import { AgentProbeStrip, SettingsView } from "./Settings";
 import { createNotifier, notifyEnabled, setNotifyEnabled } from "../notify";
 import { clearComments } from "../comments";
 
@@ -21,6 +23,7 @@ export function Shell() {
   const [projectId, setProjectId] = useState<string | null>(null);
   const [sessionFocus, setSessionFocus] = useState<SessionFocus | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [cardNotices, projectNotice] = useReducer(reduceCardNotices, new Map());
 
   // Session ids are project-local UI targets. Keeping the project alongside
@@ -104,7 +107,7 @@ export function Shell() {
         </div>
       )}
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-        <Sidebar projects={projects.data ?? []} activeId={projectId} onSelect={setProjectId} />
+        <Sidebar projects={projects.data ?? []} activeId={projectId} onSelect={setProjectId} onAdd={() => setSheetOpen(true)} />
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "10px 14px", borderBottom: "1px solid var(--surface-2)", background: "var(--bg-deep)" }}>
             <span style={{ fontSize: 13, fontWeight: 500 }}>{active?.name ?? "—"}</span>
@@ -118,9 +121,15 @@ export function Shell() {
                 </span>
               ))}
             </div>
+            <button type="button" aria-label="Settings" onClick={() => setView("settings")}
+              style={{ marginLeft: "auto", display: "grid", placeItems: "center", width: 28, height: 28, padding: 0, border: "1px solid var(--border)", borderRadius: 6, background: view === "settings" ? "var(--surface-2)" : "var(--surface)", color: view === "settings" ? "var(--violet-2)" : "var(--dim)", cursor: "pointer" }}>
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="8" cy="8" r="2.2" /><path d="M8 1.8v1.9M8 12.3v1.9M1.8 8h1.9M12.3 8h1.9M3.6 3.6l1.35 1.35M11.05 11.05l1.35 1.35M12.4 3.6l-1.35 1.35M4.95 11.05 3.6 12.4" />
+              </svg>
+            </button>
             <button type="button" aria-label={notifOn ? "Disable notifications" : "Enable notifications"}
               onClick={() => void setNotifyEnabled(!notifOn).then(setNotifOn)}
-              style={{ marginLeft: "auto", display: "grid", placeItems: "center", width: 28, height: 28, padding: 0, border: "1px solid var(--border)", borderRadius: 6, background: "var(--surface)", color: notifOn ? "var(--violet-2)" : "var(--dim)", cursor: "pointer" }}>
+              style={{ display: "grid", placeItems: "center", width: 28, height: 28, padding: 0, border: "1px solid var(--border)", borderRadius: 6, background: "var(--surface)", color: notifOn ? "var(--violet-2)" : "var(--dim)", cursor: "pointer" }}>
               <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M8 2.2a4 4 0 0 1 4 4c0 3 1.3 4 1.3 4H2.7S4 9.2 4 6.2a4 4 0 0 1 4-4Z" /><path d="M6.8 12.8a1.3 1.3 0 0 0 2.4 0" />
               </svg>
@@ -135,36 +144,30 @@ export function Shell() {
               {view === "board" && <Board project={active} />}
               {view === "terminal" && <TerminalView project={active} />}
               {view === "diff" && <DiffView />}
+              {view === "settings" && <SettingsView project={active} />}
             </AppCtx.Provider>
           ) : (
             // belt-and-braces: the ws "project" event also invalidates, but this
             // covers the local tab even if the socket is down
-            <AddFirstProject onDone={id => { qc.invalidateQueries({ queryKey: ["projects"] }); setProjectId(id); }} />
+            <div style={{ flex: 1, display: "grid", placeItems: "center" }}>
+              <div>
+                <AgentProbeStrip />
+                <ProjectSheet onDone={p => { qc.invalidateQueries({ queryKey: ["projects"] }); setProjectId(p.id); }} />
+              </div>
+            </div>
           )}
         </div>
       </div>
+      {sheetOpen && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 40, display: "grid", placeItems: "center", background: "var(--overlay)" }}>
+          <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: 16 }}>
+            <ProjectSheet onClose={() => setSheetOpen(false)}
+              onDone={p => { setSheetOpen(false); qc.invalidateQueries({ queryKey: ["projects"] }); setProjectId(p.id); }} />
+          </div>
+        </div>
+      )}
       {paletteOpen && <Palette onClose={() => setPaletteOpen(false)} onJump={(pid, v) => { setProjectId(pid); setView(v); setPaletteOpen(false); }} />}
     </div>
   );
 }
 
-function AddFirstProject({ onDone }: { onDone: (id: string) => void }) {
-  const [path, setPath] = useState("");
-  const [err, setErr] = useState("");
-  return (
-    <div style={{ flex: 1, display: "grid", placeItems: "center" }}>
-      <div style={{ width: 420 }}>
-        <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>Add a project</div>
-        <input value={path} onChange={e => setPath(e.target.value)} placeholder="/absolute/path/to/git/repo"
-          onKeyDown={async e => {
-            if (e.key !== "Enter") return;
-            const name = path.replace(/\/+$/, "").split("/").pop() || "project";
-            try { onDone((await api.post<Project>("/api/projects", { name, path })).id); }
-            catch (err) { setErr(err instanceof Error ? err.message : String(err)); }
-          }}
-          style={{ width: "100%", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 6, color: "var(--text)", padding: "8px 10px", fontSize: 12, outline: "none" }} />
-        {err && <div style={{ color: "var(--red)", fontSize: 11, marginTop: 6 }}>{err}</div>}
-      </div>
-    </div>
-  );
-}

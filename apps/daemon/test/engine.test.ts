@@ -1611,3 +1611,49 @@ test("A8: cancel exits stale and conflict reviews cleanly", async () => {
   expect(getCard(w.db, b.c.id)!.phase).toBe("cancelled");
   expect(wtRows(w.db).find((x) => x.id === b.wt.id)!.state).toBe("archived");
 }, 25_000);
+
+// ---------------------------------------------------------------------------
+// Part 4 — worktree bootstrap (copy-globs + setup script), mode, empty repo
+// ---------------------------------------------------------------------------
+
+test("P4: fresh worktree gets copy-glob files and the setup script runs; failing script → start_failed", async () => {
+  const w = await makeWorld();
+  await Bun.write(join(w.repo, ".env"), "SECRET=1\n"); // untracked config
+  const { updateProjectSettings } = await import("../src/store/projects");
+  updateProjectSettings(w.db, w.project.id, {
+    copyGlobs: [".env"],
+    setupScript: "echo bootstrapped > setup-ran.txt",
+    mode: "host",
+  });
+  const c = card(w, "Bootstrap me", { auto: false });
+  await w.engine.start(c.id);
+  const wt = wtRows(w.db).find((x) => x.id === getCard(w.db, c.id)!.worktreeId)!;
+  expect(await Bun.file(join(wt.path, ".env")).text()).toBe("SECRET=1\n");
+  expect((await Bun.file(join(wt.path, "setup-ran.txt")).text()).trim()).toBe("bootstrapped");
+  // §9.1: the project's execution mode is persisted on the attempt at spawn.
+  expect(attemptRows(w.db, c.id)[0]!.status).toBeDefined();
+  const modeRow = w.db.query(`SELECT mode FROM attempts WHERE card_id = ?1`).get(c.id) as { mode: string };
+  expect(modeRow.mode).toBe("host");
+
+  // Failing setup script → start_failed, card queued-visible error, no wedge.
+  const w2 = await makeWorld();
+  const { updateProjectSettings: ups2 } = await import("../src/store/projects");
+  ups2(w2.db, w2.project.id, { setupScript: "exit 7" });
+  const c2 = card(w2, "Broken bootstrap", { auto: false });
+  await w2.engine.start(c2.id);
+  await w2.engine.idle();
+  const failed = getCard(w2.db, c2.id)!;
+  expect(failed.errorKind).toBe("start_failed");
+}, 25_000);
+
+test("P4: empty repository blocks start with 'first commit required' (409 path, card untouched)", async () => {
+  const w = await makeWorld();
+  const empty = mkdtempSync(join(tmpdir(), "cg-empty-"));
+  cleanups.push(empty);
+  await sh(empty, "git", "init", "-b", "main");
+  const { createProject: mkProject } = await import("../src/store/projects");
+  const p2 = mkProject(w.db, { name: "Empty", path: empty, baseBranch: "main" });
+  const c = createCard(w.db, { projectId: p2.id, title: "no commits", body: "", agent: "claude" });
+  await expect(w.engine.start(c.id)).rejects.toThrow(/first commit required/);
+  expect(getCard(w.db, c.id)!.phase).toBe("queued"); // clean 409, no attempt burn
+}, 15_000);
