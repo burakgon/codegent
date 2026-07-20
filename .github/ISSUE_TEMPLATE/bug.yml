@@ -1,0 +1,23 @@
+name: Bug report
+description: Something broke
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, what you got. `codegent doctor` output helps.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: codegent --version
+    validations:
+      required: true
+  - type: input
+    id: agent
+    attributes:
+      label: Agent involved (if any)
+      placeholder: claude / codex / gemini / …

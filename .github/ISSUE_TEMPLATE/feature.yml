@@ -1,0 +1,10 @@
+name: Feature request
+description: Something codegent should do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What should it do, and why?
+    validations:
+      required: true
