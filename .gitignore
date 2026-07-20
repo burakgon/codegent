@@ -6,3 +6,4 @@ dist/
 .codegent/
 docs/research/tmp/
 apps/web/spike/spike-evidence.png
+!packages/ghostty-web-dist/dist/
