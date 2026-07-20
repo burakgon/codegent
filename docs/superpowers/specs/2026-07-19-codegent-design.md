@@ -2,6 +2,8 @@
 
 **Date:** 2026-07-19 · **Status:** Draft for owner review · **Language:** Product UI is English. This spec is the single source of truth for v1.
 
+> ⚠️ **Scope revision (2026-07-20): codegent is LOCAL-ONLY.** The hosted zero-knowledge relay, device pairing, E2E crypto, signed bootstrap, LAN-direct, and Web Push are CUT from v0.3 and v1.0 — remote access is the user's own concern (their own tunnel: Tailscale / Cloudflare Tunnel / `ssh -L`). The relay/remote/push parts of the pitch below and of §§1–3, 10, 11 are now PARKED design reference, not the current build. v1 = local terminal-state orchestration (Part 1, done) + review queue/diff (Part 3) + installer/Settings (Part 4). See memory `relay-remote-cut-local-only`.
+
 > codegent is a browser-based AI coding-agent orchestrator: the terminal power of Orca, the kanban orchestration of Vibe Kanban, and zero-knowledge remote access via a relay — in one open-source product. Add a task card from any browser; an agent starts in a real terminal on your machine at home; you get a push when it needs input; you answer in the terminal, review the diff, merge.
 
 ---

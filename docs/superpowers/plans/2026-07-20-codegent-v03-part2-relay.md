@@ -1,5 +1,7 @@
 # codegent v0.3 Part 2 — Zero-Knowledge Relay, Device Pairing & Web Push Implementation Plan
 
+> ⛔ **DEFERRED / NOT BUILT — scope decision 2026-07-20.** codegent is now LOCAL-ONLY. The entire relay + device pairing + E2E crypto + signed bootstrap + LAN-direct + Web Push is CUT from v0.3 and v1.0; remote access is the user's own responsibility (their tunnel). This plan is PARKED as design reference for a possible post-v1.0 relay. Do not execute it. See memory `relay-remote-cut-local-only`. The crypto spike (`docs/research/relay-crypto-spike.md`) remains valid research.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 > **v0.3 is written as a just-in-time SEQUENCE (spec §16), one plan per independent subsystem.** This is Part 2 of 4:
