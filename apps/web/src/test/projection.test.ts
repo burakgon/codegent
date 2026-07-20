@@ -94,6 +94,39 @@ describe("terminal session projections", () => {
     expect(entries.map(entry => entry.previous)).toEqual([false, true, false, false]);
   });
 
+  test("rail orders attention first, then groups each card live-before-previous, with shells last", () => {
+    const sessions = [
+      session({ id: "shell-a", kind: "shell", live: true, createdAt: 1 }),
+      session({ id: "running-a-live", kind: "agent", live: true, createdAt: 10, attemptId: 10 }),
+      session({ id: "running-b-live", kind: "agent", live: true, createdAt: 15, attemptId: 11 }),
+      session({ id: "input-live", kind: "agent", live: true, createdAt: 20, attemptId: 12 }),
+      session({ id: "review-live", kind: "agent", live: true, createdAt: 30, attemptId: 13 }),
+      session({ id: "error-previous", kind: "agent", live: false, createdAt: 35, attemptId: 14 }),
+      session({ id: "error-live", kind: "agent", live: true, createdAt: 40, attemptId: 14 }),
+      session({ id: "running-a-previous", kind: "agent", live: false, createdAt: 45, attemptId: 10 }),
+      session({ id: "shell-b", kind: "shell", live: true, createdAt: 50 }),
+    ];
+    const cards: Card[] = [
+      { ...base, id: 10, title: "Running A", phase: "working", workingSub: "running", position: 1, attemptId: 10 },
+      { ...base, id: 11, title: "Running B", phase: "working", workingSub: "running", position: 2, attemptId: 11 },
+      { ...base, id: 12, title: "Needs input", phase: "working", workingSub: "running", inputKind: "question", position: 3, attemptId: 12 },
+      { ...base, id: 13, title: "Review", phase: "review", reviewSub: "ready", position: 4, attemptId: 13 },
+      { ...base, id: 14, title: "Error", phase: "working", workingSub: "error", errorKind: "crashed", position: 5, attemptId: 14 },
+    ];
+
+    expect(railSessionEntries(sessions, cards).map(entry => entry.session.id)).toEqual([
+      "error-live",
+      "error-previous",
+      "input-live",
+      "running-a-live",
+      "running-a-previous",
+      "running-b-live",
+      "review-live",
+      "shell-a",
+      "shell-b",
+    ]);
+  });
+
   test("card routing covers running/waiting and errors, with live focus precedence", () => {
     expect(cardRoutesToTerminal({ phase: "working", workingSub: "running" })).toBe(true);
     expect(cardRoutesToTerminal({ phase: "working", workingSub: "error" })).toBe(true);

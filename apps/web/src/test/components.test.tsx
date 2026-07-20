@@ -87,6 +87,50 @@ test("SessionRail renders distinct metadata-only agent rows above shells", () =>
   expect(html.indexOf("Codex card")).toBeLessThan(html.indexOf("main"));
 });
 
+test("SessionRail renders the current card title and uses session title only for an orphan", () => {
+  const sessions: SessionMeta[] = [
+    { id: "linked", projectId: "p", kind: "agent", title: "Spawn-time title", cwd: "/tmp", worktreeId: null, live: true, createdAt: 1, adapterSessionId: null, attemptId: 1 },
+    { id: "orphan", projectId: "p", kind: "agent", title: "Orphan session", cwd: "/tmp", worktreeId: null, live: true, createdAt: 2, adapterSessionId: null, attemptId: null },
+  ];
+  const html = renderToStaticMarkup(
+    <SessionRail
+      sessions={sessions}
+      cards={[{ ...base, title: "Renamed in Details" }]}
+      worktrees={[]}
+      openIds={[]}
+      focusedId={null}
+      onPick={() => {}}
+      onNew={() => {}}
+    />,
+  );
+
+  expect(html).toContain("Renamed in Details");
+  expect(html).not.toContain("Spawn-time title");
+  expect(html).toContain("Orphan session");
+});
+
+test("SessionRail session rows are native buttons with Enter/Space activation semantics", () => {
+  const sessions: SessionMeta[] = [
+    { id: "shell", projectId: "p", kind: "shell", title: "main", cwd: "/tmp", worktreeId: null, live: true, createdAt: 1, adapterSessionId: null, attemptId: null },
+    { id: "agent", projectId: "p", kind: "agent", title: "Task", cwd: "/tmp", worktreeId: null, live: true, createdAt: 2, adapterSessionId: null, attemptId: 1 },
+  ];
+  const html = renderToStaticMarkup(
+    <SessionRail
+      sessions={sessions}
+      cards={[base]}
+      worktrees={[]}
+      openIds={[]}
+      focusedId={null}
+      onPick={() => {}}
+      onNew={() => {}}
+    />,
+  );
+  const rows = html.match(/<button[^>]*data-session-kind="(?:agent|shell)"[^>]*>/g) ?? [];
+
+  expect(rows).toHaveLength(2);
+  expect(rows.every(row => row.includes('type="button"'))).toBe(true);
+});
+
 describe("Details", () => {
   test("normalizes optional Send back comments", () => {
     expect(sendBackComments("   ")).toEqual([]);

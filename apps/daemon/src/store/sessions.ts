@@ -25,6 +25,6 @@ export function setAdapterSessionId(db: Database, id: string, adapterSessionId: 
 }
 
 export function listSessions(db: Database, projectId: string): SessionMeta[] {
-  return db.query(`SELECT * FROM sessions WHERE project_id = ?1 ORDER BY created_at`)
+  return db.query(`SELECT * FROM sessions WHERE project_id = ?1 ORDER BY created_at, rowid`)
     .all(projectId).map(rowToMeta);
 }

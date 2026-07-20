@@ -22,14 +22,24 @@ export function interruptedMessage(count: number): string {
 
 export type RailSessionEntry = {
   session: SessionMeta;
+  title: string;
   agent: Exclude<Card["agent"], "none"> | null;
   previous: boolean;
 };
 
+function railAttentionRank(card: Card | undefined): number {
+  if (!card) return 4;
+  if (card.workingSub === "error" || card.errorKind !== null) return 0;
+  if (card.inputKind !== null) return 1;
+  if (card.phase === "working") return 2;
+  if (card.phase === "review") return 3;
+  return 4;
+}
+
 /**
  * The rail is a projection of durable session metadata, never terminal
- * output. Live agents come first, followed by the one replayable dead agent
- * ring for each card's current attempt, then the existing live shell list.
+ * output. Agent cards are attention-first and grouped by card, with the live
+ * row before its one replayable dead ring. Existing live shells stay last.
  */
 export function railSessionEntries(sessions: SessionMeta[], cards: Card[]): RailSessionEntry[] {
   const cardByAttempt = new Map<number, Card>();
@@ -53,14 +63,35 @@ export function railSessionEntries(sessions: SessionMeta[], cards: Card[]): Rail
   const entries = sessions.map((session, index) => {
     const card = session.attemptId == null ? undefined : cardByAttempt.get(session.attemptId);
     const agent = card?.agent === "claude" || card?.agent === "codex" ? card.agent : null;
-    return { session, agent, previous: !session.live, index };
+    return {
+      session,
+      title: card?.title ?? session.title,
+      agent,
+      previous: !session.live,
+      attention: railAttentionRank(card),
+      cardPosition: card?.position ?? Number.MAX_SAFE_INTEGER,
+      cardId: card?.id ?? Number.MAX_SAFE_INTEGER,
+      index,
+    };
   });
   const agents = entries
     .filter(entry => entry.session.kind === "agent" && (entry.session.live || replayable.has(entry.session.id)))
-    .sort((a, b) => Number(b.session.live) - Number(a.session.live) || a.index - b.index);
+    .sort((a, b) =>
+      a.attention - b.attention
+      || a.cardPosition - b.cardPosition
+      || a.cardId - b.cardId
+      || Number(b.session.live) - Number(a.session.live)
+      || a.index - b.index
+    );
   // Shell behavior is unchanged: only live rows, in API order.
   const shells = entries.filter(entry => entry.session.kind === "shell" && entry.session.live);
-  return [...agents, ...shells].map(({ index: _index, ...entry }) => entry);
+  return [...agents, ...shells].map(({
+    attention: _attention,
+    cardPosition: _cardPosition,
+    cardId: _cardId,
+    index: _index,
+    ...entry
+  }) => entry);
 }
 
 /** Waiting is a derived running state; starting/stopped cards do not route. */

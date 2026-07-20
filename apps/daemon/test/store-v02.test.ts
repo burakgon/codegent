@@ -198,6 +198,24 @@ test("sessions round-trip kind/adapterSessionId/attemptId", () => {
   expect(shell!.attemptId).toBeNull();
 });
 
+test("sessions with equal timestamps use rowid order matching newest-ring GC", () => {
+  const tieDb = openDb(":memory:");
+  const p = createProject(tieDb, { name: "Tie", path: "/tmp/tie", baseBranch: "main" });
+  // Make the old query's unspecified tie order observably wrong: this index
+  // serves created_at-only ordering with id DESC, opposite insertion/rowid.
+  tieDb.exec(`CREATE INDEX sessions_adversarial_tie ON sessions(project_id, created_at, id DESC)`);
+  for (const id of ["a-first", "z-second"]) {
+    insertSession(tieDb, {
+      id, projectId: p.id, kind: "agent", title: id, cwd: "/tmp/tie",
+      worktreeId: null, live: false, createdAt: 1234,
+      adapterSessionId: null, attemptId: null,
+    });
+  }
+
+  expect(listSessions(tieDb, p.id).map(session => session.id)).toEqual(["a-first", "z-second"]);
+  tieDb.close();
+});
+
 test("deleteCard removes v0.2 attempt children before deleting a completed card", () => {
   const doomedDb = openDb(":memory:");
   const p = createProject(doomedDb, { name: "Delete", path: "/tmp/delete", baseBranch: "main" });
