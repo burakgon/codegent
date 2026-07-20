@@ -17,20 +17,28 @@ interface PidRow {
   pgid: number;
 }
 
-async function psSnapshot(): Promise<PidRow[]> {
+/**
+ * One shared `ps` subprocess seam for reaping and process-tree detection.
+ * Callers own parse policy; failures intentionally degrade to an empty table.
+ */
+export async function capturePsOutput(columns: string): Promise<string> {
   try {
-    const p = Bun.spawn({ cmd: ["ps", "-ax", "-o", "pid=,pgid="], stdout: "pipe", stderr: "pipe" });
+    const p = Bun.spawn({ cmd: ["ps", "-ax", "-o", columns], stdout: "pipe", stderr: "pipe" });
     const [code, out] = await Promise.all([p.exited, new Response(p.stdout).text()]);
-    if (code !== 0) return [];
-    const rows: PidRow[] = [];
-    for (const line of out.split("\n")) {
-      const m = line.trim().match(/^(\d+)\s+(\d+)$/);
-      if (m) rows.push({ pid: Number(m[1]), pgid: Number(m[2]) });
-    }
-    return rows;
+    return code === 0 ? out : "";
   } catch {
-    return [];
+    return "";
   }
+}
+
+async function psSnapshot(): Promise<PidRow[]> {
+  const out = await capturePsOutput("pid=,pgid=");
+  const rows: PidRow[] = [];
+  for (const line of out.split("\n")) {
+    const m = line.trim().match(/^(\d+)\s+(\d+)$/);
+    if (m) rows.push({ pid: Number(m[1]), pgid: Number(m[2]) });
+  }
+  return rows;
 }
 
 /** Live PIDs currently in the given process group (portable macOS/Linux `ps`). */
