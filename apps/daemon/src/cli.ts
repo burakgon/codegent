@@ -116,15 +116,21 @@ export async function findDaemon(opts?: { dataDir?: string; ports?: number[]; fe
   if (!existsSync(tokenPath)) return null;
   const token = readFileSync(tokenPath, "utf8").trim();
   const f = opts?.fetchFn ?? fetch;
-  const ports = opts?.ports ?? Array.from({ length: PORT_MAX - PORT_BASE }, (_, i) => PORT_BASE + i);
+  // The port file is written by OUR daemon (same-user data dir) — the token
+  // is only presented there, never sprayed across a port range where any
+  // local process could squat and harvest it (review A-C2).
+  const portPath = join(dataDir, "port");
+  const filePorts = existsSync(portPath) ? [Number(readFileSync(portPath, "utf8").trim())] : [];
+  const ports = opts?.ports ?? filePorts;
   for (const port of ports) {
+    if (!Number.isInteger(port) || port <= 0) continue;
     try {
       const res = await f(`http://127.0.0.1:${port}/api/projects`, {
         headers: { "x-codegent-token": token },
         signal: AbortSignal.timeout(400),
       });
       if (res.ok) return { base: `http://127.0.0.1:${port}`, token };
-    } catch { /* nothing on this port */ }
+    } catch { /* stale port file / daemon down */ }
   }
   return null;
 }
@@ -196,11 +202,18 @@ export async function main(argv: string[]): Promise<number> {
       console.log("update codegent:\n  npm i -g codegent-cli@latest\n  # or re-run: curl -fsSL https://codegent.io/install | sh");
       return 0;
     case "service": {
-      const binPath = process.execPath; // the compiled binary (or bun in dev)
+      const binPath = process.execPath;
+      if (parsed.action === "enable" && !/codegent(\.exe)?$/.test(binPath)) {
+        // dev mode: execPath is bun itself — a unit running bare `bun start`
+        // would KeepAlive-crash-loop (review A-Min). Services need the binary.
+        console.error("service enable requires the installed codegent binary (curl installer) — not a source run");
+        return 1;
+      }
       const result = parsed.action === "enable" ? await enableService(binPath)
         : parsed.action === "disable" ? await disableService()
         : await serviceStatus();
       console.log(`service: ${result}`);
+      if (parsed.action === "enable") return result === "enabled" ? 0 : 1; // installer relies on this (A-Imp)
       return result === "unsupported" ? 1 : 0;
     }
     case "task-add": {
@@ -209,9 +222,17 @@ export async function main(argv: string[]): Promise<number> {
       return res.ok ? 0 : 1;
     }
     case "start": {
+      // A daemon may already be running (service): REUSE it — a second boot
+      // against the same db would mark its live dispatches interrupted (A-C1).
+      const existing = await findDaemon();
+      if (existing) {
+        console.log(`codegent daemon already running → ${existing.base}/#t=${existing.token}`);
+        if (parsed.open) openBrowser(`${existing.base}/#t=${existing.token}`);
+        return 0;
+      }
       const { startDaemon } = await import("./daemon");
       const daemon = await startDaemon();
-      if (parsed.open) openBrowser(`${daemon.url}?t=${daemon.token}`);
+      if (parsed.open) openBrowser(`${daemon.url}#t=${daemon.token}`);
       return -1; // long-running — never exits here
     }
   }

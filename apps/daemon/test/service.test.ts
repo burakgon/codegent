@@ -27,7 +27,8 @@ describe("unit file generation", () => {
   });
   test("systemd unit restarts on failure and wants default.target", () => {
     const u = systemdUnit("/usr/local/bin/codegent");
-    expect(u).toContain("ExecStart=/usr/local/bin/codegent start --no-open");
+    expect(u).toContain('ExecStart="/usr/local/bin/codegent" start --no-open'); // quoted: spaces survive
+    expect(u).toContain("Environment=PATH="); // agent CLIs need a real PATH under systemd
     expect(u).toContain("Restart=on-failure");
     expect(u).toContain("WantedBy=default.target");
   });
@@ -57,10 +58,11 @@ describe("enable/disable/status per platform", () => {
     const home = mkdtempSync(join(tmpdir(), "cg-svc-"));
     const s = scripted();
     expect(await enableService("/bin/cg", { run: s.run, platform: "linux", home })).toBe("enabled");
-    expect(readFileSync(systemdUnitPath(home), "utf8")).toContain("ExecStart=/bin/cg start --no-open");
+    expect(readFileSync(systemdUnitPath(home), "utf8")).toContain('ExecStart="/bin/cg" start --no-open');
     expect(s.calls).toEqual([
       ["systemctl", "--user", "daemon-reload"],
       ["systemctl", "--user", "enable", "--now", "codegent.service"],
+      ["systemctl", "--user", "restart", "codegent.service"], // re-enable swaps a live binary
     ]);
     expect(await disableService({ run: s.run, platform: "linux", home })).toBe("disabled");
     expect(existsSync(systemdUnitPath(home))).toBe(false);

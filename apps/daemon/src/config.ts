@@ -34,5 +34,9 @@ export function loadConfig(): { port: number; dataDir: string; token: string } {
       port++; // busy, try next
     }
   }
+  // Written AFTER the probe: discovery (CLI task-add / bare `codegent`) reads
+  // this instead of scanning ports — the token is only ever sent to the port
+  // OUR daemon recorded, never to an arbitrary local listener (review A-C2).
+  writeFileSync(join(dataDir, "port"), String(port));
   return { port, dataDir, token };
 }

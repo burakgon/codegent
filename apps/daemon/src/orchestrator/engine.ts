@@ -715,6 +715,11 @@ export class Engine {
       }
       wt = r.wt;
       createdNew = r.created;
+      // §8 worktree bootstrap (copy-globs + setup script) runs HERE — after
+      // wt/createdNew are recorded, so a failing script reaches startFailed
+      // WITH rollback context (review B-Imp): a created worktree rolls back
+      // instead of stranding an active row + branch that block retries.
+      if (r.fresh) await bootstrapWorktree(project, wt, this.setupLogDir());
       if (!this.ownsStarting(card.id, generation)) {
         await this.abandonLaunch(attempt.id, dispatch.id, false, createdNew && wt ? { project, wt } : null);
         return;
@@ -762,12 +767,12 @@ export class Engine {
     project: Project,
     card: Card,
     ownsStart: () => boolean,
-  ): Promise<{ wt: Worktree; created: boolean } | null> {
+  ): Promise<{ wt: Worktree; created: boolean; fresh: boolean } | null> {
     const db = this.deps.db;
     if (card.worktreeId) {
       const row = this.worktreeRow(card.worktreeId);
       if (row) {
-        if (row.state === "active" && existsSync(row.path)) return { wt: row, created: false };
+        if (row.state === "active" && existsSync(row.path)) return { wt: row, created: false, fresh: false };
         await git(project.path, "worktree", "prune").catch(() => {});
         if (!ownsStart()) return null;
         try {
@@ -785,20 +790,16 @@ export class Engine {
           return null;
         }
         db.query(`UPDATE worktrees SET state = 'active' WHERE id = ?1`).run(row.id);
-        const readded = { ...row, state: "active" as const };
-        // Re-added from the kept branch = a fresh directory: it needs the
-        // same untracked bootstrap (.env & co) a brand-new worktree gets.
-        await bootstrapWorktree(project, readded, this.setupLogDir());
-        return { wt: readded, created: false };
+        // fresh: the re-added dir needs the same untracked bootstrap a brand
+        // new worktree gets (.env & co) — run by launch(), AFTER rollback
+        // context is recorded (review B-Imp).
+        return { wt: { ...row, state: "active" }, created: false, fresh: true };
       }
+      if (row) return { wt: row, created: false, fresh: false }; // unreachable guard; explicit
     }
     const create = this.deps.createWorktree ?? createWorktree;
     const wt = await create(db, project, { cardId: card.id, slugSource: card.title });
-    // §8 worktree bootstrap: copy-globs + setup script BEFORE the agent
-    // spawns. A failure throws into the start_failed rollback (the worktree
-    // this launch created is rolled back there).
-    await bootstrapWorktree(project, wt, this.setupLogDir());
-    return { wt, created: true };
+    return { wt, created: true, fresh: true };
   }
 
   private setupLogDir(): string | undefined {

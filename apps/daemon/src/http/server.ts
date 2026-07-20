@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { join, resolve, sep } from "node:path";
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { CardSchema, MarkStateBodySchema, ProjectSchema, SessionMetaSchema, WorktreeSchema } from "@codegent/protocol";
 import { createProject, listProjects, setWorkerLimit, updateProjectSettings } from "../store/projects";
@@ -40,6 +40,11 @@ const WorktreeCreateBody = WorktreeSchema.pick({ base: true }).partial();
 const invalid = (e: { issues: { path: readonly PropertyKey[]; message: string }[] }) =>
   json({ error: e.issues.map(i => (i.path.length ? `${i.path.join(".")}: ${i.message}` : i.message)).join("; ") }, 400);
 
+/** The sheet advertises `~/code/...` — expand it server-side (review B-Min). */
+function expandHome(p: string, home = homedir()): string {
+  return p === "~" ? home : p.startsWith("~/") ? join(home, p.slice(2)) : p;
+}
+
 async function resolveBaseBranch(path: string): Promise<string> {
   const run = async (...args: string[]) => {
     const p = Bun.spawn({ cmd: ["git", ...args], cwd: path, stdout: "pipe", stderr: "pipe" });
@@ -47,8 +52,12 @@ async function resolveBaseBranch(path: string): Promise<string> {
   };
   const head = await run("symbolic-ref", "refs/remotes/origin/HEAD", "--short"); // e.g. origin/main
   if (head) return head.replace(/^origin\//, "");
-  // `||` not `??`: --show-current prints "" on a detached HEAD
-  return (await run("branch", "--show-current")) || "main";
+  const current = await run("branch", "--show-current"); // "" on detached HEAD
+  if (current) return current;
+  // Detached HEAD: fall back to the repo's FIRST local branch, not a blind
+  // "main" that may not exist (review A-Imp: worktree creation would fail).
+  const first = await run("for-each-ref", "--format=%(refname:short)", "--count=1", "refs/heads");
+  return first || "main";
 }
 
 /** §8 daemon-side path autocomplete: HOME-anchored only (a remote browser
@@ -58,11 +67,28 @@ export function pathComplete(q: string, home = homedir()): string[] {
   const expanded = q === "" || q === "~" ? home + sep
     : q.startsWith("~/") ? join(home, q.slice(2))
     : q;
-  if (!resolve(expanded).startsWith(home)) return []; // outside home → nothing
+  // Canonical containment (review A-Imp): boundary-aware (home + sep, so
+  // /Users/alice-private never passes for /Users/alice) and symlink-resolved
+  // (a link inside home pointing at /etc must not be enumerable).
+  const inHome = (path: string): boolean => {
+    const r = resolve(path);
+    if (r !== home && !r.startsWith(home + sep)) return false;
+    try {
+      // Compare REAL to REAL: home itself may sit behind a symlink
+      // (macOS /var → /private/var), so mixing real and lexical paths
+      // would reject legitimate home children.
+      const real = realpathSync(r);
+      const realHome = realpathSync(home);
+      return real === realHome || real.startsWith(realHome + sep);
+    } catch {
+      return false;
+    }
+  };
+  if (!inHome(expanded) && !inHome(resolve(expanded, ".."))) return [];
   const endsWithSep = expanded.endsWith(sep);
   const parent = endsWithSep ? expanded.slice(0, -1) || sep : resolve(expanded, "..");
   const prefix = endsWithSep ? "" : expanded.slice(parent.length).replace(/^\//, "");
-  if (!existsSync(parent) || !statSync(parent).isDirectory()) return [];
+  if (!existsSync(parent) || !statSync(parent).isDirectory() || !inHome(parent)) return [];
   const out: string[] = [];
   for (const name of readdirSync(parent)) {
     if (name.startsWith(".") && !prefix.startsWith(".")) continue;
@@ -106,28 +132,36 @@ async function handleApi(req: Request, url: URL, db: Database, ptys: PtyManager,
   if (url.pathname === "/api/projects" && req.method === "POST") {
     const v = ProjectCreateBody.safeParse(body);
     if (!v.success) return invalid(v.error);
+    const projectPath = expandHome(v.data.path);
     // §8 "git clone URL" tab: path is the DESTINATION (created by the clone).
     if (typeof body.clone === "string" && body.clone) {
-      if (existsSync(v.data.path)) return json({ error: "clone destination already exists" }, 400);
-      const c = Bun.spawn({ cmd: ["git", "clone", body.clone, v.data.path], stdout: "pipe", stderr: "pipe" });
+      if (body.clone.startsWith("-")) return json({ error: "invalid clone URL" }, 400); // option smuggling (A-Imp)
+      if (existsSync(projectPath)) return json({ error: "clone destination already exists" }, 400);
+      const c = Bun.spawn({ cmd: ["git", "clone", "--", body.clone, projectPath], stdout: "pipe", stderr: "pipe" });
       if ((await c.exited) !== 0) return json({ error: "git clone failed" }, 400);
     }
-    if (!existsSync(v.data.path)) return json({ error: "path does not exist" }, 400);
+    if (!existsSync(projectPath)) return json({ error: "path does not exist" }, 400);
     if (!body.skipGitCheck) {
-      const p = Bun.spawn({ cmd: ["git", "rev-parse", "--git-dir"], cwd: v.data.path, stdout: "pipe", stderr: "pipe" });
+      const p = Bun.spawn({ cmd: ["git", "rev-parse", "--git-dir"], cwd: projectPath, stdout: "pipe", stderr: "pipe" });
       if ((await p.exited) !== 0) {
         // §8 non-git folder → refuse with one-click "git init" (the sheet
         // resubmits with gitInit:true).
         if (body.gitInit === true) {
-          const g = Bun.spawn({ cmd: ["git", "init", "-b", "main"], cwd: v.data.path, stdout: "pipe", stderr: "pipe" });
+          const g = Bun.spawn({ cmd: ["git", "init", "-b", "main"], cwd: projectPath, stdout: "pipe", stderr: "pipe" });
           if ((await g.exited) !== 0) return json({ error: "git init failed" }, 400);
         } else {
           return json({ error: "not a git repository", canInit: true }, 400);
         }
       }
     }
-    const baseBranch = v.data.baseBranch ?? (await resolveBaseBranch(v.data.path));
-    const project = createProject(db, { name: v.data.name, path: v.data.path, baseBranch });
+    const baseBranch = v.data.baseBranch ?? (await resolveBaseBranch(projectPath));
+    let project = createProject(db, { name: v.data.name, path: projectPath, baseBranch });
+    // Atomic create+settings (review B-Imp): the sheet sends everything in ONE
+    // request; a partial second call can never strand a default-configured row.
+    const settings = ProjectSettingsBody.safeParse(body.settings ?? {});
+    if (settings.success && Object.keys(settings.data).length > 0) {
+      project = updateProjectSettings(db, project.id, settings.data) ?? project;
+    }
     events.emit({ t: "project", project });
     return json(project, 201);
   }
@@ -351,9 +385,11 @@ async function handleApi(req: Request, url: URL, db: Database, ptys: PtyManager,
   if ((x = m(/^\/api\/projects\/([^/]+)\/events$/)) && req.method === "GET") {
     if (!listProjects(db).some(p => p.id === x![1])) return json({ error: "project not found" }, 404);
     const cardParam = url.searchParams.get("card");
+    const rawLimit = Number(url.searchParams.get("limit"));
+    const rawCard = cardParam ? Number(cardParam) : undefined;
     return json(listEventLog(db, x[1]!, {
-      cardId: cardParam ? Number(cardParam) : undefined,
-      limit: Number(url.searchParams.get("limit")) || undefined,
+      cardId: Number.isInteger(rawCard) ? rawCard : undefined,
+      limit: Number.isInteger(rawLimit) && rawLimit > 0 ? rawLimit : undefined,
     }));
   }
   // Worker limit (spec §5 — Settings-owned, default 1).

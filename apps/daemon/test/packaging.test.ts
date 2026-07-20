@@ -51,3 +51,64 @@ describe("install.sh", () => {
     expect(sh(["--bogus"]).code).toBe(2);
   });
 });
+
+describe("Part-4 review-fix regressions", () => {
+  test("pathComplete: prefix-collision and symlink escapes are contained", async () => {
+    const { pathComplete } = await import("../src/http/server");
+    const { mkdtempSync, mkdirSync, symlinkSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const base = mkdtempSync(join(tmpdir(), "cg-anchor-"));
+    const home = join(base, "alice");
+    mkdirSync(join(home, "code"), { recursive: true });
+    mkdirSync(join(base, "alice-private", "secret"), { recursive: true }); // prefix collision
+    mkdirSync(join(base, "outside", "etcish"), { recursive: true });
+    symlinkSync(join(base, "outside"), join(home, "link-out")); // symlink escape
+    expect(pathComplete(join(home, "co"), home)).toEqual([join(home, "code")]);
+    expect(pathComplete(join(base, "alice-private") + "/", home)).toEqual([]); // startsWith(home) but NOT home/
+    expect(pathComplete(join(home, "link-out") + "/", home)).toEqual([]); // resolves outside → nothing
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  test("copyGlobsInto: traversal globs and symlinked files never cross the boundary", async () => {
+    const { copyGlobsInto } = await import("../src/git/setup");
+    const { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, existsSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const base = mkdtempSync(join(tmpdir(), "cg-globs-"));
+    const repo = join(base, "repo");
+    const wt = join(base, "wt");
+    mkdirSync(repo, { recursive: true });
+    mkdirSync(wt, { recursive: true });
+    writeFileSync(join(base, "victim.txt"), "outside");
+    writeFileSync(join(repo, ".env"), "IN=1");
+    symlinkSync(join(base, "victim.txt"), join(repo, "sneaky-link"));
+    const copied = copyGlobsInto({ path: repo, copyGlobs: ["../victim.txt", ".env", "sneaky-link"] }, wt);
+    expect(copied).toEqual([".env"]); // traversal + symlink both skipped
+    expect(existsSync(join(base, "wt", ".env"))).toBe(true);
+    expect(existsSync(join(base, "victim.txt.copy"))).toBe(false);
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  test("findDaemon uses the daemon-written port file, never a range scan", async () => {
+    const { findDaemon } = await import("../src/cli");
+    const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dataDir = mkdtempSync(join(tmpdir(), "cg-pf-"));
+    writeFileSync(join(dataDir, "token"), "tkn");
+    const hit: number[] = [];
+    const fetchFn = (async (url: string) => {
+      hit.push(Number(new URL(url).port));
+      return new Response("[]", { status: 200 });
+    }) as unknown as typeof fetch;
+    // no port file → no probe at all (token never sprayed)
+    expect(await findDaemon({ dataDir, fetchFn })).toBeNull();
+    expect(hit).toEqual([]);
+    writeFileSync(join(dataDir, "port"), "4701");
+    const found = await findDaemon({ dataDir, fetchFn });
+    expect(found?.base).toBe("http://127.0.0.1:4701");
+    expect(hit).toEqual([4701]); // exactly the recorded port
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+});

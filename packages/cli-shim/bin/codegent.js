@@ -33,8 +33,8 @@ if (bunOk && existsSync(cliTs)) {
 }
 
 console.error(
-  "codegent binary not found.\n" +
+  "codegent-cli is a launcher: it runs the codegent binary, which is not installed yet.\n" +
   "Install it with:\n\n  curl -fsSL https://codegent.io/install | sh\n\n" +
-  "(or set CODEGENT_BIN to an existing codegent binary)"
+  "then re-run `codegent` (or set CODEGENT_BIN to an existing binary)."
 );
 process.exit(1);

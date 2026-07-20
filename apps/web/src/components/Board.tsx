@@ -58,7 +58,7 @@ export function Board({ project }: { project: Project }) {
     void qc.invalidateQueries({ queryKey: ["interrupted", projectId] });
     if (drawer) void qc.invalidateQueries({ queryKey: ["timeline", drawer.cardId] });
   };
-  const fail = (_error: unknown) => setNotice("Action unavailable");
+  const fail = (error: unknown) => setNotice(error instanceof Error && error.message ? error.message : "Action unavailable"); // engine-authored prose only — never terminal content
   const create = useMutation({
     mutationFn: (value: { title: string; agent: CardT["agent"] }) => api.post<CardT>(`/api/projects/${projectId}/cards`, { ...value, body: "" }),
     onSuccess: invalidate,
@@ -202,6 +202,9 @@ function Composer({ onCreate, defaultAgent = "claude" }: { onCreate: (title: str
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [agent, setAgent] = useState<CardT["agent"]>(defaultAgent); // §8: composer preselects the project default
+  // Prop sync (review B-Imp): switching to a project with a different default
+  // must not keep the previous project's agent selected.
+  useEffect(() => setAgent(defaultAgent), [defaultAgent]);
   if (!open) return (
     <button type="button" onClick={() => setOpen(true)}
       style={{ width: "100%", padding: 7, border: "1px dashed var(--border)", borderRadius: 8, background: "var(--bg)", color: "var(--dim)", font: "inherit", fontSize: 11, textAlign: "center", cursor: "pointer" }}>

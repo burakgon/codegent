@@ -1,6 +1,6 @@
-import { cpSync, mkdirSync } from "node:fs";
+import { cpSync, lstatSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import type { Project, Worktree } from "@codegent/protocol";
 
 // §8 worktree bootstrap (Part 4): a fresh worktree without .env/node_modules
@@ -23,13 +23,24 @@ export class WorktreeSetupError extends Error {
  * cross. Returns the copied relative paths (tests + log). */
 export function copyGlobsInto(project: Pick<Project, "path" | "copyGlobs">, wtPath: string): string[] {
   const copied: string[] = [];
+  const rootReal = resolve(project.path);
+  const wtReal = resolve(wtPath);
   for (const pattern of project.copyGlobs) {
     const glob = new Bun.Glob(pattern);
     for (const rel of glob.scanSync({ cwd: project.path, dot: true, onlyFiles: true })) {
       if (rel.startsWith(".git/") || rel.startsWith(".codegent/") || rel === ".git") continue;
-      const dst = join(wtPath, rel);
+      const src = resolve(project.path, rel);
+      const dst = resolve(wtPath, rel);
+      // Containment (review A-Imp): a `../…` glob match or an escaping
+      // destination never crosses either boundary; symlinks are skipped —
+      // a copied link could resolve outside the project.
+      if (!src.startsWith(rootReal + sep)) continue;
+      if (!dst.startsWith(wtReal + sep)) continue;
+      try {
+        if (lstatSync(src).isSymbolicLink()) continue;
+      } catch { continue; }
       mkdirSync(dirname(dst), { recursive: true });
-      cpSync(join(project.path, rel), dst);
+      cpSync(src, dst);
       copied.push(rel);
     }
   }
@@ -56,13 +67,20 @@ export async function runSetupScript(
     stdout: "pipe",
     stderr: "pipe",
   });
-  const timer = setTimeout(() => proc.kill(), SETUP_TIMEOUT_MS);
-  const [code, out, err] = await Promise.all([
-    proc.exited,
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
+  // Hard bound (review A-Imp): SIGKILL (a HUP-immune child must not outlive
+  // the budget) and the WAIT ITSELF is raced — a grandchild holding the pipe
+  // open can no longer wedge this promise forever.
+  const timer = setTimeout(() => proc.kill(9), SETUP_TIMEOUT_MS);
+  const result = await Promise.race([
+    Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]),
+    new Promise<null>((r) => setTimeout(() => r(null), SETUP_TIMEOUT_MS + 5_000)),
   ]);
   clearTimeout(timer);
+  if (result === null) {
+    await Bun.write(log, `$ ${script}\n--- timed out after ${SETUP_TIMEOUT_MS / 1000}s (pipes held open) ---\n`);
+    throw new WorktreeSetupError(`worktree setup script timed out — see ${logPath}`);
+  }
+  const [code, out, err] = result;
   await Bun.write(log, `$ ${script}\n--- stdout ---\n${out}\n--- stderr ---\n${err}\n--- exit ${code} ---\n`);
   if (code !== 0) {
     throw new WorktreeSetupError(`worktree setup script failed (exit ${code}) — see ${logPath}`);

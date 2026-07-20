@@ -8,14 +8,11 @@ on your machine, with your subscriptions. No accounts, no cloud, no telemetry.
 ## Quick start
 
 ```sh
-npx codegent-cli
-```
-
-That runs the daemon in the foreground and opens the board. Make it permanent:
-
-```sh
 curl -fsSL https://codegent.io/install | sh   # binary + PATH + user service
+codegent                                       # opens the board
 ```
+
+Already installed? `npx codegent-cli` launches the same binary from anywhere.
 
 Then: add a project, drop a task card, watch an agent pick it up in a real
 terminal, answer its questions in that terminal, review the diff, merge.

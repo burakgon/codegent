@@ -29,8 +29,10 @@ export function SettingsView({ project }: { project: Project }) {
   const [notifOn, setNotifOn] = useState(notifyEnabled);
   const [confirmPrune, setConfirmPrune] = useState(false);
   const [copied, setCopied] = useState(false);
+  // A confirm armed for project A must never authorize deletion in B (review B-Imp).
+  React.useEffect(() => setConfirmPrune(false), [projectId]);
 
-  const agents = useQuery({ queryKey: ["agents"], queryFn: () => api.get<{ agents: AgentRow[] }>("/api/state/agents"), staleTime: 60_000 });
+  const agents = useQuery({ queryKey: ["agents"], queryFn: () => api.get<{ agents: AgentRow[] }>("/api/state/agents"), refetchInterval: 60_000 });
   const service = useQuery({ queryKey: ["service"], queryFn: () => api.get<{ status: string }>("/api/state/service") });
   const worktrees = useQuery({
     queryKey: ["worktrees-sized", projectId],
@@ -50,7 +52,7 @@ export function SettingsView({ project }: { project: Project }) {
 
   const active = (worktrees.data ?? []).filter(w => w.state === "active");
   const archivedCount = (worktrees.data ?? []).length - active.length;
-  const accessUrl = `${window.location.origin}/?t=${token()}`;
+  const accessUrl = `${window.location.origin}/#t=${token()}`; // fragment: never sent in requests
 
   return (
     <div style={{ flex: 1, overflow: "auto", padding: 16, maxWidth: 620 }}>
@@ -117,7 +119,7 @@ export function SettingsView({ project }: { project: Project }) {
           {confirmPrune && (
             <>
               <span style={{ color: "var(--red)" }}>deletes their kept branches — sure?</span>
-              <button type="button" onClick={() => prune.mutate()} style={{ padding: "3px 8px", border: "1px solid var(--red)", borderRadius: 6, background: "var(--bg)", color: "var(--red)", font: "inherit", fontSize: 10, cursor: "pointer" }}>Prune now</button>
+              <button type="button" disabled={prune.isPending} onClick={() => prune.mutate()} style={{ padding: "3px 8px", border: "1px solid var(--red)", borderRadius: 6, background: "var(--bg)", color: "var(--red)", font: "inherit", fontSize: 10, cursor: "pointer" }}>Prune now</button>
               <button type="button" onClick={() => setConfirmPrune(false)} style={{ padding: "3px 8px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg)", color: "var(--ctrl)", font: "inherit", fontSize: 10, cursor: "pointer" }}>Keep</button>
             </>
           )}
@@ -165,6 +167,17 @@ export function AgentProbeStrip() {
   );
 }
 
+/** §18: machine labels → product English on the surface (rows stay enums). */
+export function activityLabel(kind: string): string {
+  if (kind.startsWith("waiting.")) return "Waiting for input";
+  if (kind.startsWith("error.")) return "Error";
+  if (kind.startsWith("notice.")) return kind === "notice.runaway" ? "Still running" : kind === "notice.heartbeat-quiet" ? "Quiet 10m+" : "State mismatch";
+  if (kind === "review.ready") return "Ready for review";
+  if (kind.startsWith("review.")) return `Review — ${kind.slice(7)}`;
+  if (kind.startsWith("working.")) return "Running";
+  return kind[0]!.toUpperCase() + kind.slice(1);
+}
+
 /** §8 event log surface: newest-first state facts, filterable by card. */
 export function ActivityLog({ projectId }: { projectId: string }) {
   const [cardFilter, setCardFilter] = useState("");
@@ -183,7 +196,7 @@ export function ActivityLog({ projectId }: { projectId: string }) {
         {(log.data ?? []).map(r => (
           <div key={r.id} style={{ display: "flex", gap: 8, padding: "2px 0", fontSize: 11, color: "var(--text-2)" }}>
             <span style={{ width: 40, color: "var(--meta)", fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{formatElapsed(now - r.ts)}</span>
-            <span style={{ width: 120, color: "var(--ctrl)", flexShrink: 0 }}>{r.kind}</span>
+            <span style={{ width: 120, color: "var(--ctrl)", flexShrink: 0 }}>{activityLabel(r.kind)}</span>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.cardId !== null ? `#${r.cardId} · ` : ""}{r.title}</span>
           </div>
         ))}

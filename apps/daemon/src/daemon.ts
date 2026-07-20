@@ -33,6 +33,13 @@ export async function startDaemon(): Promise<{ url: string; token: string; stop:
   //    them → live=0 (PtyManager only flips rows at runtime), then ring GC —
   //    dead sessions' scrollback dies except the latest agent ring per card's
   //    current attempt, which replays as the frozen "previous session" pane.
+  // §8 event log subscriber attaches BEFORE reconciliation (review A/B-Imp):
+  // the overnight "interrupted" facts are exactly what the log exists for.
+  sweepEventLog(db);
+  events.on(eventLogTracker(db));
+  const logSweep = setInterval(() => sweepEventLog(db), 24 * 3600_000);
+  (logSweep as unknown as { unref?: () => void }).unref?.();
+
   bootReconcile(db, events, Date.now());
   sweepSettingsDirs(db, cfg.dataDir);
   db.query(`UPDATE sessions SET live = 0`).run();
@@ -81,12 +88,6 @@ export async function startDaemon(): Promise<{ url: string; token: string; stop:
   });
   engineRef = engine;
   engine.attachHooks(receiver);
-
-  // §8 event log: bus → durable rows; boot sweep + daily retention sweep.
-  sweepEventLog(db);
-  events.on(eventLogTracker(db));
-  const logSweep = setInterval(() => sweepEventLog(db), 24 * 3600_000);
-  (logSweep as unknown as { unref?: () => void }).unref?.();
 
   const srv = startServer(cfg, db, ptys, engine);
   console.log(`codegent daemon → ${srv.url}?t=${cfg.token}`);

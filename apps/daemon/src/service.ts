@@ -35,6 +35,16 @@ export function systemdUnitPath(home = homedir()): string {
   return join(home, ".config", "systemd", "user", "codegent.service");
 }
 
+const xml = (s: string): string =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/** Agent CLIs live in user-installed prefixes launchd/systemd never provide —
+ * bake a sane PATH into the unit (review A-Imp: probes/spawns failed under
+ * the service's bare environment). */
+export function servicePath(home = homedir()): string {
+  return [join(home, ".codegent", "bin"), join(home, ".local", "bin"), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"].join(":");
+}
+
 /** Deterministic launchd plist: RunAtLoad + KeepAlive, logs under ~/.codegent/logs. */
 export function launchdPlist(binPath: string, home = homedir()): string {
   const logDir = join(home, ".codegent", "logs");
@@ -45,26 +55,29 @@ export function launchdPlist(binPath: string, home = homedir()): string {
   <key>Label</key><string>${LAUNCHD_LABEL}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>${binPath}</string>
+    <string>${xml(binPath)}</string>
     <string>start</string>
     <string>--no-open</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict><key>PATH</key><string>${xml(servicePath(home))}</string></dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>${join(logDir, "daemon.log")}</string>
-  <key>StandardErrorPath</key><string>${join(logDir, "daemon.err.log")}</string>
+  <key>StandardOutPath</key><string>${xml(join(logDir, "daemon.log"))}</string>
+  <key>StandardErrorPath</key><string>${xml(join(logDir, "daemon.err.log"))}</string>
 </dict>
 </plist>
 `;
 }
 
-/** Deterministic systemd --user unit. */
-export function systemdUnit(binPath: string): string {
+/** Deterministic systemd --user unit (path quoted — spaces survive). */
+export function systemdUnit(binPath: string, home = homedir()): string {
   return `[Unit]
 Description=codegent daemon
 
 [Service]
-ExecStart=${binPath} start --no-open
+ExecStart="${binPath}" start --no-open
+Environment=PATH=${servicePath(home)}
 Restart=on-failure
 
 [Install]
@@ -99,9 +112,12 @@ export async function enableService(binPath: string, d?: ServiceDeps): Promise<S
   if (platform === "linux") {
     const unit = systemdUnitPath(home);
     mkdirSync(join(home, ".config", "systemd", "user"), { recursive: true });
-    writeFileSync(unit, systemdUnit(binPath));
+    writeFileSync(unit, systemdUnit(binPath, home));
     await run(["systemctl", "--user", "daemon-reload"]);
     const en = await run(["systemctl", "--user", "enable", "--now", "codegent.service"]);
+    // Re-enable over a RUNNING old daemon must actually swap binaries
+    // (review A-Imp): enable --now leaves an active unit untouched.
+    await run(["systemctl", "--user", "restart", "codegent.service"]);
     return en.code === 0 ? "enabled" : "disabled";
   }
   return "unsupported";

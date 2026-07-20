@@ -50,18 +50,27 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 echo "downloading ${url}"
 curl -fSL --proto '=https' "$url" -o "${tmp}/codegent.tar.gz"
+# Extract to a staging dir FIRST (review A-Min): a corrupt archive must not
+# destroy a working install.
+mkdir -p "${tmp}/extract"
+tar -xzf "${tmp}/codegent.tar.gz" -C "${tmp}/extract"
+[ -x "${tmp}/extract/bin/codegent" ] || { echo "archive layout invalid" >&2; exit 1; }
 rm -rf "${ROOT}/dist/${target}"
-mkdir -p "${ROOT}/dist/${target}"
-tar -xzf "${tmp}/codegent.tar.gz" -C "${ROOT}/dist/${target}"
+mkdir -p "${ROOT}/dist"
+mv "${tmp}/extract" "${ROOT}/dist/${target}"
 ln -sf "${ROOT}/dist/${target}/bin/codegent" "${ROOT}/bin/codegent"
 chmod +x "${ROOT}/dist/${target}/bin/codegent"
 
 # PATH line, idempotent, into whichever rc files exist.
 PATH_LINE="export PATH=\"\$HOME/.codegent/bin:\$PATH\""
-for rc in "${HOME_DIR}/.zshrc" "${HOME_DIR}/.bashrc" "${HOME_DIR}/.profile"; do
+added=0
+for rc in "${HOME_DIR}/.zshrc" "${HOME_DIR}/.zprofile" "${HOME_DIR}/.bashrc" "${HOME_DIR}/.profile"; do
   [ -f "$rc" ] || continue
   grep -qs '\.codegent/bin' "$rc" || printf '\n%s\n' "$PATH_LINE" >> "$rc"
+  added=1
 done
+# No rc file at all (fresh account, review A-Imp): create ~/.profile.
+[ "$added" = 1 ] || printf '%s\n' "$PATH_LINE" >> "${HOME_DIR}/.profile"
 
 if [ "$SERVICE" = 1 ]; then
   "${ROOT}/bin/codegent" service enable || echo "service setup failed — run it later: codegent service enable"
@@ -69,5 +78,11 @@ fi
 
 echo ""
 echo "codegent installed."
-echo "  start now:   ${ROOT}/bin/codegent"
+TOKEN="$(cat "${ROOT}/token" 2>/dev/null || true)"
+PORT="$(cat "${ROOT}/port" 2>/dev/null || echo 4666)"
+if [ -n "$TOKEN" ]; then
+  echo "  board:  http://localhost:${PORT}/#t=${TOKEN}"
+else
+  echo "  start:  ${ROOT}/bin/codegent   (prints + opens the board URL)"
+fi
 echo "  (new shells have it on PATH as \`codegent\`)"

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { CardAgent } from "@codegent/protocol";
 import type { Card, Project } from "@codegent/protocol";
 import { api } from "../api";
 
@@ -37,6 +38,7 @@ export function ProjectSheet({ onDone, onClose }: { onDone: (project: Project) =
   }, [path, tab]);
 
   const submit = async (gitInit = false) => {
+    if (busy) return; // Enter during a slow POST must not double-create (review B-Imp)
     setErr("");
     setBusy(true);
     try {
@@ -46,14 +48,11 @@ export function ProjectSheet({ onDone, onClose }: { onDone: (project: Project) =
       if (baseBranch.trim()) body.baseBranch = baseBranch.trim();
       if (tab === "clone") body.clone = cloneUrl.trim();
       if (gitInit) body.gitInit = true;
-      const project = await api.post<Project>("/api/projects", body);
       const globs = copyGlobs.split(",").map(s => s.trim()).filter(Boolean);
-      if (agent !== "claude" || mode !== "auto" || setupScript.trim() || globs.length) {
-        await api.patch(`/api/projects/${project.id}/settings`, {
-          defaultAgent: agent === "none" ? null : agent, mode,
-          setupScript: setupScript, copyGlobs: globs,
-        });
-      }
+      // ONE request (review B-Imp): create + settings land atomically — a
+      // failed second call can never strand a default-configured project.
+      body.settings = { defaultAgent: agent, mode, setupScript, copyGlobs: globs };
+      const project = await api.post<Project>("/api/projects", body);
       onDone(project);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -110,12 +109,10 @@ export function ProjectSheet({ onDone, onClose }: { onDone: (project: Project) =
         </div>
         <div>
           <div style={label}>Default agent</div>
-          <div style={{ display: "flex", gap: 4 }}>
-            {(["claude", "codex", "none"] as const).map(a => (
-              <button key={a} type="button" onClick={() => setAgent(a)}
-                style={{ padding: "5px 8px", border: `1px solid ${agent === a ? "var(--violet-2)" : "var(--border)"}`, borderRadius: 6, background: "var(--bg)", color: agent === a ? "var(--violet-2)" : "var(--ctrl)", font: "inherit", fontSize: 10, cursor: "pointer" }}>{a}</button>
-            ))}
-          </div>
+          <select value={agent} onChange={e => setAgent(e.target.value as Card["agent"])} aria-label="Default agent"
+            style={{ ...field, width: 110, padding: "5px 8px" }}>
+            {CardAgent.options.map(a => <option key={a} value={a}>{a}</option>)}
+          </select>
         </div>
         <div>
           <div style={label}>Mode</div>
