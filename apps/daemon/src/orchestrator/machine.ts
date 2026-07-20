@@ -1,4 +1,4 @@
-import type { Card, InputKind } from "@codegent/protocol";
+import type { Card, InputKind, MarkState } from "@codegent/protocol";
 
 /**
  * Pure card state machine — the single authority on legal card transitions
@@ -13,6 +13,7 @@ import type { Card, InputKind } from "@codegent/protocol";
  *   working.starting        start-failed     queued + start_failed     archive-worktree (partial rollback; no push)
  *   working.running[+flag]  flag(kind)       same + flag replaced      push (question/permission only; silent never)
  *   working.<any>+flag      flag-clear       flag cleared              -      (unflagged working: tolerated no-op)
+ *   working.<any>           mark-state       manual flag set/cleared   -
  *   working.running[+flag]  complete         review.ready              compute-diffstat, push
  *   working.running[+flag]  stop-failure     working.error(crashed)    push
  *   working.<any sub>       crashed          working.error(crashed)    push
@@ -36,6 +37,7 @@ export type MachineEvent =
   | { t: "start-failed" }
   | { t: "flag"; kind: InputKind }
   | { t: "flag-clear" }
+  | { t: "mark-state"; state: MarkState }
   | { t: "complete" }
   | { t: "stop-failure" }
   | { t: "crashed" }
@@ -165,6 +167,20 @@ export function transition(card: Card, ev: MachineEvent, now: number): { card: C
       if (!working) throw fail();
       if (card.inputKind === null) return { card, effects: [] }; // tolerated double-clear (spec 6.1)
       return { card: { ...card, inputKind: null, inputSince: null, updatedAt: now }, effects: [] };
+    }
+    case "mark-state": {
+      if (!working) throw fail();
+      // `question` is the existing generic needs-input kind. A manual mark is
+      // informational state arbitration, not a new push-notification source.
+      return ev.state === "needs-input"
+        ? {
+            card: { ...card, inputKind: "question", inputSince: now, updatedAt: now },
+            effects: [],
+          }
+        : {
+            card: { ...card, inputKind: null, inputSince: null, updatedAt: now },
+            effects: [],
+          };
     }
     case "complete": {
       if (!running) throw fail();

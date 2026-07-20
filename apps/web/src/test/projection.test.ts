@@ -73,6 +73,9 @@ test("notice projection stores fixed-copy chips and clears on the next card even
   notices = reduceCardNotices(notices, { t: "notice", cardId: base.id, kind: "runaway" });
   expect(noticeCopy(notices.get(base.id)!)).toBe("still running");
 
+  notices = reduceCardNotices(notices, { t: "notice", cardId: base.id, kind: "mismatch" });
+  expect(noticeCopy(notices.get(base.id)!)).toBe("state mismatch");
+
   // A fresh card event is newer truth even when the card is still working.
   notices = reduceCardNotices(notices, {
     t: "card",

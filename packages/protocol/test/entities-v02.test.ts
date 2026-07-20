@@ -39,8 +39,9 @@ describe("v0.2 entities", () => {
     expect(m.kind).toBe("agent");
   });
   test("notice event carries no text payload", () => {
-    const e = DomainEventSchema.parse({ t: "notice", cardId: 3, kind: "runaway" });
+    const e = DomainEventSchema.parse({ t: "notice", cardId: 3, kind: "mismatch" });
     expect("message" in e).toBe(false);
-    expect(() => DomainEventSchema.parse({ t: "notice", cardId: 3, kind: "runaway", message: "boom" })).toThrow();
+    expect(Object.keys(e).sort()).toEqual(["cardId", "kind", "t"]);
+    expect(() => DomainEventSchema.parse({ t: "notice", cardId: 3, kind: "mismatch", terminalContent: "boom" })).toThrow();
   });
 });

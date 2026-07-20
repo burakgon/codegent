@@ -7,6 +7,9 @@ export const ErrorKind = z.enum(["start_failed", "crashed", "interrupted"]);
 export const ReviewSub = z.enum(["ready", "stale", "conflict", "updating", "merging"]);
 export const InputKind = z.enum(["question", "permission", "silent"]);
 export type InputKind = z.infer<typeof InputKind>;
+export const MarkState = z.enum(["running", "needs-input"]);
+export type MarkState = z.infer<typeof MarkState>;
+export const MarkStateBodySchema = z.object({ state: MarkState }).strict();
 export const CardAgent = z.enum([
   "claude",
   "codex",

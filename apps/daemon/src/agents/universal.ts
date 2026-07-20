@@ -22,6 +22,7 @@ import type {
   AdapterPtys,
   AdapterSignal,
   AgentAdapter,
+  DetectStateSnapshot,
   SpawnCtx,
   SpawnResult,
 } from "./types";
@@ -246,11 +247,15 @@ export class UniversalAdapter implements AgentAdapter {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let polling = false;
     let lastPublished: DetectState | null = null;
+    let latestDetected: DetectStateSnapshot | null = null;
     let identified = true;
     let stopDetection = (): void => {};
 
     const publish = (detected: DetectState): void => {
       identified = detected.agent !== null;
+      // This is the dispatch's complete watchdog surface: enums + timestamp,
+      // never agent labels, rule ids, or terminal screen content.
+      latestDetected = { state: detected.state, since: detected.since };
       if (!active || detected === lastPublished) return;
       // Classifier startup grace deliberately reports an idle baseline while
       // the freshly submitted prompt is still reaching the agent. Do not turn
@@ -349,7 +354,11 @@ export class UniversalAdapter implements AgentAdapter {
       active = true;
       sample();
       schedulePoll();
-      return { sessionMeta: meta, settingsDir: dir };
+      return {
+        sessionMeta: meta,
+        settingsDir: dir,
+        latestDetectState: () => stopped ? null : latestDetected,
+      };
     } catch (error) {
       cleanup();
       throw error;

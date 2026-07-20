@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { existsSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import type { Attempt, Card, Dispatch, DomainEvent, Project, Worktree } from "@codegent/protocol";
+import type { Attempt, Card, Dispatch, DomainEvent, MarkState, Project, Worktree } from "@codegent/protocol";
 import {
   dispatchEffect,
   transition as machineTransition,
@@ -25,9 +25,10 @@ import {
   reapRecordedProcessGroup,
   recordProcessGroup,
 } from "../pty/reap";
-import type { AdapterSignal, AgentAdapter, SpawnResult } from "../agents/types";
+import type { AdapterSignal, AgentAdapter, DetectStateSnapshot, SpawnResult } from "../agents/types";
 import { CODEX_HOME_DIRNAME } from "../agents/codex";
 import type { PtyManager } from "../pty/manager";
+import { Watchdog, DEFAULT_MISMATCH_THRESHOLD_MS, type ManualOverride } from "./watchdog";
 
 /**
  * The orchestrator engine (spec §5) — R1 queue→start, R2 input→Waiting,
@@ -107,7 +108,7 @@ export class NothingToUndo extends Error {
   }
 }
 
-export type LifecycleAction = "merge" | "start" | "resume" | "restart" | "cancel" | "send-back";
+export type LifecycleAction = "merge" | "start" | "resume" | "restart" | "cancel" | "send-back" | "mark-state";
 
 const actionEvent: Record<LifecycleAction, MachineEvent["t"]> = {
   merge: "merge-start",
@@ -116,6 +117,7 @@ const actionEvent: Record<LifecycleAction, MachineEvent["t"]> = {
   restart: "restart",
   cancel: "cancel",
   "send-back": "send-back",
+  "mark-state": "mark-state",
 };
 
 /** Same-card lifecycle actions are mutually exclusive across their complete
@@ -159,12 +161,15 @@ export interface EngineTimers {
   spawnTimeoutMs: number;
   /** Paste→Enter settle for engine-side injection (send-back comments). */
   injectSettleMs: number;
+  /** Persistent manual/detection disagreement threshold (spec §9.2). */
+  mismatchWatchdogMs: number;
 }
 const DEFAULT_TIMERS: EngineTimers = {
   heartbeatWarnMs: 10 * 60_000,
   runawayMs: 30 * 60_000,
   spawnTimeoutMs: 30_000,
   injectSettleMs: 500,
+  mismatchWatchdogMs: DEFAULT_MISMATCH_THRESHOLD_MS,
 };
 
 /** Fresh v0.2 dispatches run in the agent's native sandbox (spec §6 "sandboxed
@@ -310,9 +315,20 @@ export class Engine {
   /** A slot release that occurs inside a still-held action lease is replayed
    * immediately after that lease exits (not from an unrelated illegal action). */
   private pendingSlotWake = new Set<number>();
+  /** Sticky human arbitration, in-memory by design: a daemon restart has no
+   * live classifier truth to compare and therefore starts un-overridden. */
+  private manualOverrides = new Map<number, ManualOverride>();
+  /** One content-free classifier getter per current/live adapter session. */
+  private detectStateByCard = new Map<number, () => DetectStateSnapshot | null>();
+  private watchdog: Watchdog;
 
   constructor(private deps: EngineDeps) {
     this.timers = { ...DEFAULT_TIMERS, ...deps.timers };
+    this.watchdog = new Watchdog({
+      clock: deps.clock,
+      thresholdMs: this.timers.mismatchWatchdogMs,
+      emit: event => deps.events.emit(event),
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -331,13 +347,24 @@ export class Engine {
   }
 
   private saveCard(card: Card, extra: Partial<Pick<Card, "worktreeId" | "attemptId">> = {}): Card {
-    return updateCard(this.deps.db, card.id, {
+    const saved = updateCard(this.deps.db, card.id, {
       phase: card.phase, workingSub: card.workingSub, errorKind: card.errorKind,
       reviewSub: card.reviewSub, inputKind: card.inputKind, inputSince: card.inputSince,
       round: card.round, auto: card.auto,
       worktreeId: card.worktreeId, attemptId: card.attemptId,
       ...extra,
     });
+    // Completion/cancel leave the phase; crash/interruption enter error while
+    // retaining the historical `working` phase. Both end the live override.
+    if (saved.phase !== "working" || saved.workingSub === "error") {
+      this.clearManualOverride(saved.id);
+    }
+    return saved;
+  }
+
+  private clearManualOverride(cardId: number): void {
+    this.manualOverrides.delete(cardId);
+    this.watchdog.clear(cardId);
   }
 
   /** Persist a machine-produced card and fan it out as a domain event. */
@@ -701,6 +728,8 @@ export class Engine {
     this.ptyByCard.set(cardId, res.sessionMeta.id);
     this.ptyByDispatch.set(dispatchId, res.sessionMeta.id);
     this.spawnKeyByCard.set(cardId, dispatchId);
+    if (res.latestDetectState) this.detectStateByCard.set(cardId, res.latestDetectState);
+    else this.detectStateByCard.delete(cardId);
     // SessionStart may beat adapter.spawn()'s paste-readiness work. Consume
     // only the identity captured for THIS dispatch/attempt; a prior attempt's
     // identity must never be copied into this new session row.
@@ -865,11 +894,13 @@ export class Engine {
         return;
       }
       case "flag": {
+        if (this.manualOverrides.has(card.id)) return;
         const r = this.driveInternal(card, { t: "flag", kind: sig.kind });
         if (r) this.persist(r.card); // `push` effect: no-op until §11
         return;
       }
       case "flag-clear": {
+        if (this.manualOverrides.has(card.id)) return;
         const r = this.driveInternal(card, { t: "flag-clear" });
         if (r && r.card !== card) this.persist(r.card); // tolerated double-clear stays silent
         return;
@@ -881,6 +912,7 @@ export class Engine {
         // end-of-turn → input-needed(question).
         if (pendingComplete(db, id)) this.completeFromApi(id);
         else {
+          if (this.manualOverrides.has(card.id)) return;
           const r = this.driveInternal(card, { t: "flag", kind: "question" });
           if (r) this.persist(r.card);
         }
@@ -894,6 +926,27 @@ export class Engine {
         return;
       }
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Manual input-state arbitration (§7.3) — sticky until replaced/terminal
+  // -------------------------------------------------------------------------
+
+  markState(cardId: number, state: MarkState): Promise<Card> {
+    return this.runAction(cardId, "mark-state", () => this.markStateUnlocked(cardId, state));
+  }
+
+  private async markStateUnlocked(cardId: number, state: MarkState): Promise<Card> {
+    const card = getCard(this.deps.db, cardId);
+    if (!card) throw new CardNotFound(cardId);
+    const now = this.deps.clock();
+    const next = transition(card, { t: "mark-state", state }, now); // non-working → 409
+    const saved = this.persist(next.card);
+    // A re-mark terminates the old override/latch even when both enum values
+    // happen to be identical and the injected clock has not advanced.
+    this.clearManualOverride(cardId);
+    this.manualOverrides.set(cardId, { state, since: now });
+    return saved;
   }
 
   // -------------------------------------------------------------------------
@@ -1005,6 +1058,8 @@ export class Engine {
     this.spawnKeyByCard.delete(cardId);
     this.asidByCard.delete(cardId);
     this.undoStash.delete(cardId);
+    this.clearManualOverride(cardId);
+    this.detectStateByCard.delete(cardId);
     this.deps.events.emit({ t: "cardDeleted", id: cardId });
   }
 
@@ -1407,6 +1462,16 @@ export class Engine {
     for (const k of this.hbWarned.keys()) if (!live.has(k)) this.hbWarned.delete(k);
     for (const k of this.runawayFired) if (!live.has(k)) this.runawayFired.delete(k);
     for (const k of this.stopSeen) if (!live.has(k)) this.stopSeen.delete(k);
+    const activeCards = this.deps.db.query(
+      `SELECT id FROM cards
+       WHERE phase = 'working' AND working_sub IN ('starting', 'running')
+       ORDER BY id`,
+    ).all() as Array<{ id: number }>;
+    this.watchdog.tick(activeCards.map(({ id: cardId }) => ({
+      cardId,
+      manual: this.manualOverrides.get(cardId) ?? null,
+      detected: this.detectStateByCard.get(cardId)?.() ?? null,
+    })));
     // R1 liveness backstop: masks any missed tick trigger. Cheap and
     // idempotent — no-ops while slots are full or nothing is queued.
     this.tick();

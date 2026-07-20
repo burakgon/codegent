@@ -7,6 +7,7 @@ import type {
   SessionMeta,
 } from "@codegent/protocol";
 import type { OpenSessionOpts } from "../pty/manager";
+import type { DetectStateName } from "../detect/classifier";
 
 /** Execution mode for a dispatch (spec §6): `auto` = the agent's native
  * sandbox, autonomous; `host` = YOLO on the real machine; `ask` = the agent's
@@ -50,7 +51,19 @@ export type AdapterSignal =
   | { s: "complete-eval" } // Stop — engine checks pending task_complete (truth table)
   | { s: "stop-failure" };
 
-export type SpawnResult = { sessionMeta: SessionMeta; settingsDir: string };
+/** Content-free classifier projection retained by one live dispatch. */
+export interface DetectStateSnapshot {
+  state: DetectStateName;
+  since: number;
+}
+
+export type SpawnResult = {
+  sessionMeta: SessionMeta;
+  settingsDir: string;
+  /** Universal sessions expose current detection without agent identity,
+   * rule ids, or any terminal content. Premium adapters omit it. */
+  latestDetectState?: () => DetectStateSnapshot | null;
+};
 
 /** One live PTY, as adapters need it: prompt injection + output-quiet gating. */
 export interface AdapterPtySession {

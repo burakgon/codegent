@@ -159,7 +159,10 @@ test("UniversalAdapter spawns a bare Gemini PTY with isolated MCP config", async
     emitSignal: (signal) => signals.push(signal),
   });
 
-  expect(result).toEqual({ sessionMeta: meta, settingsDir: join(dataDir, "agents", "dispatch-1") });
+  expect(result.sessionMeta).toEqual(meta);
+  expect(result.settingsDir).toBe(join(dataDir, "agents", "dispatch-1"));
+  expect(result.latestDetectState?.()).toEqual({ state: "idle", since: 10_000 });
+  expect(Object.keys(result.latestDetectState?.() ?? {}).sort()).toEqual(["since", "state"]);
   expect(opened).not.toBeNull();
   expect(opened!.cmd).toEqual(["gemini"]);
   expect(opened!.env?.CODEGENT_AGENT).toBe("gemini");
@@ -182,6 +185,7 @@ test("UniversalAdapter spawns a bare Gemini PTY with isolated MCP config", async
   await exited;
   await Promise.resolve();
   expect(disposed).toBe(true);
+  expect(result.latestDetectState?.()).toBeNull();
 });
 
 const cardForSpawn: Card = {

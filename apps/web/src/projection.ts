@@ -21,8 +21,10 @@ export function reduceCardNotices(state: CardNoticeState, event: DomainEvent): C
   return next;
 }
 
-export function noticeCopy(kind: CardNoticeKind): "quiet 10m+" | "still running" {
-  return kind === "heartbeat-quiet" ? "quiet 10m+" : "still running";
+export function noticeCopy(kind: CardNoticeKind): "quiet 10m+" | "still running" | "state mismatch" {
+  if (kind === "heartbeat-quiet") return "quiet 10m+";
+  if (kind === "runaway") return "still running";
+  return "state mismatch";
 }
 
 export function formatElapsed(ms: number): string {

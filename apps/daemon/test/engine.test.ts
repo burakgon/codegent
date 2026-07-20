@@ -637,6 +637,7 @@ test("action mutex blocks cancel during slow worktree creation; later cancel arc
     activeActions: Map<number, unknown>;
   }).activeActions.get(c.id) as Record<string, unknown>;
   expect(Object.keys(lease)).toEqual(["action"]);
+  await expect(w.engine.markState(c.id, "running")).rejects.toThrow(ActionInProgress);
   await expect(w.engine.cancel(c.id)).rejects.toThrow(ActionInProgress);
   expect(getCard(w.db, c.id)!.workingSub).toBe("starting");
 
