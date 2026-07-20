@@ -2,6 +2,7 @@ import React, { useContext, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Project, Worktree } from "@codegent/protocol";
 import { api, token } from "../api";
+import { formatElapsed } from "../projection";
 import { AppCtx } from "../appCtx";
 import { notifyEnabled, setNotifyEnabled } from "../notify";
 
@@ -10,6 +11,7 @@ import { notifyEnabled, setNotifyEnabled } from "../notify";
 // "expose safely" guidance. Relay/pairing lines are CUT (local-only pivot).
 
 type AgentRow = { name: string; path: string | null; version: string | null };
+type LogRow = { id: number; ts: number; cardId: number | null; kind: string; title: string };
 type SizedWorktree = Worktree & { bytes: number };
 
 const box: React.CSSProperties = { border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface)", padding: "12px 14px", marginBottom: 12 };
@@ -123,6 +125,11 @@ export function SettingsView({ project }: { project: Project }) {
       </div>
 
       <div style={box}>
+        <div style={h}>Activity (30 days)</div>
+        <ActivityLog projectId={projectId} />
+      </div>
+
+      <div style={box}>
         <div style={h}>Access & expose safely</div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <code style={{ flex: 1, fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--text-2)", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 6, padding: "6px 9px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{accessUrl}</code>
@@ -154,6 +161,34 @@ export function AgentProbeStrip() {
           {a.name}{a.path ? "" : " — missing"}
         </span>
       ))}
+    </div>
+  );
+}
+
+/** §8 event log surface: newest-first state facts, filterable by card. */
+export function ActivityLog({ projectId }: { projectId: string }) {
+  const [cardFilter, setCardFilter] = useState("");
+  const log = useQuery({
+    queryKey: ["eventlog", projectId, cardFilter],
+    queryFn: () => api.get<LogRow[]>(`/api/projects/${projectId}/events${cardFilter ? `?card=${cardFilter}` : ""}`),
+    refetchInterval: 30_000,
+  });
+  const now = Date.now();
+  return (
+    <div data-activity-log>
+      <input value={cardFilter} onChange={e => setCardFilter(e.target.value.replace(/[^0-9]/g, ""))}
+        placeholder="filter by card id"
+        style={{ width: 130, marginBottom: 8, padding: "4px 8px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg)", color: "var(--text)", font: "inherit", fontSize: 10, outline: "none" }} />
+      <div style={{ maxHeight: 220, overflow: "auto" }}>
+        {(log.data ?? []).map(r => (
+          <div key={r.id} style={{ display: "flex", gap: 8, padding: "2px 0", fontSize: 11, color: "var(--text-2)" }}>
+            <span style={{ width: 40, color: "var(--meta)", fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{formatElapsed(now - r.ts)}</span>
+            <span style={{ width: 120, color: "var(--ctrl)", flexShrink: 0 }}>{r.kind}</span>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.cardId !== null ? `#${r.cardId} · ` : ""}{r.title}</span>
+          </div>
+        ))}
+        {(log.data ?? []).length === 0 && <div style={{ fontSize: 11, color: "var(--dim)" }}>nothing yet</div>}
+      </div>
     </div>
   );
 }

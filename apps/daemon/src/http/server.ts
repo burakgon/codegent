@@ -9,6 +9,7 @@ import { listTimeline } from "../store/timeline";
 import { createWorktree, getWorktree, listWorktrees, slug } from "../git/worktrees";
 import { computeDiff, computeDiffSummary } from "../git/diff";
 import { listReviewedFiles, setReviewed } from "../store/reviews";
+import { listEventLog } from "../store/eventlog";
 import type { PtyManager } from "../pty/manager";
 import { CardNotFound, MergeConflict, NotDeletable, NotStartable, NothingToUndo, PrUnavailable, UserActionError, type Engine, type MergeMode } from "../orchestrator/engine";
 import { AGENT_REGISTRY } from "../detect/agent-registry";
@@ -345,6 +346,15 @@ async function handleApi(req: Request, url: URL, db: Database, ptys: PtyManager,
   // §8 Settings: user-service state (launchd/systemd).
   if (url.pathname === "/api/state/service" && req.method === "GET") {
     return json({ status: await serviceStatus() });
+  }
+  // §8 event log — project-scoped, card-filterable, capped.
+  if ((x = m(/^\/api\/projects\/([^/]+)\/events$/)) && req.method === "GET") {
+    if (!listProjects(db).some(p => p.id === x![1])) return json({ error: "project not found" }, 404);
+    const cardParam = url.searchParams.get("card");
+    return json(listEventLog(db, x[1]!, {
+      cardId: cardParam ? Number(cardParam) : undefined,
+      limit: Number(url.searchParams.get("limit")) || undefined,
+    }));
   }
   // Worker limit (spec §5 — Settings-owned, default 1).
   if ((x = m(/^\/api\/projects\/([^/]+)$/)) && req.method === "PATCH") {

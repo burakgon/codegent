@@ -47,6 +47,41 @@ test("migration 8 preserves a v7 database and defaults new worktree sync fields"
   expect(db.query("SELECT sync, behind_count FROM worktrees WHERE id = 'w1'").get())
     .toEqual({ sync: "clean", behind_count: 0 });
   expect((db.query("SELECT COUNT(*) AS n FROM card_file_reviews").get() as { n: number }).n).toBe(0);
-  expect((db.query("SELECT COUNT(*) AS n FROM _migrations").get() as { n: number }).n).toBe(11);
+  expect((db.query("SELECT COUNT(*) AS n FROM _migrations").get() as { n: number }).n).toBe(12);
+  db.close();
+});
+
+test("P4-T6: event log tracker diffs card labels, logs notices, sweeps by retention", async () => {
+  const { openDb } = await import("../src/store/db");
+  const { appendEventLog, eventLogTracker, listEventLog, sweepEventLog, cardStateLabel } = await import("../src/store/eventlog");
+  const { createProject } = await import("../src/store/projects");
+  const { createCard } = await import("../src/store/cards");
+  const db = openDb(":memory:");
+  const p = createProject(db, { name: "L", path: "/tmp", baseBranch: "main" });
+  const c = createCard(db, { projectId: p.id, title: "Log me", agent: "claude", body: "" });
+  let now = 1000;
+  const track = eventLogTracker(db, () => now);
+
+  track({ t: "card", card: { ...c, phase: "working", workingSub: "running" } as any });
+  track({ t: "card", card: { ...c, phase: "working", workingSub: "running" } as any }); // no-op dup
+  now = 2000;
+  track({ t: "card", card: { ...c, phase: "working", workingSub: "running", inputKind: "question" } as any });
+  track({ t: "notice", cardId: c.id, kind: "runaway" } as any);
+  const rows = listEventLog(db, p.id);
+  expect(rows.map(r => r.kind)).toEqual(["notice.runaway", "waiting.question", "working.running"]);
+  expect(rows[1]!.title).toBe("Log me");
+
+  // card filter + limit cap
+  expect(listEventLog(db, p.id, { cardId: c.id }).length).toBe(3);
+  expect(listEventLog(db, p.id, { cardId: 999 })).toEqual([]);
+
+  // retention sweep drops only old rows
+  appendEventLog(db, { ts: now - 31 * 24 * 3600_000, projectId: p.id, cardId: null, kind: "old", title: "x" });
+  expect(sweepEventLog(db, now)).toBe(1);
+  expect(listEventLog(db, p.id).length).toBe(3);
+
+  // label mapping spot checks
+  expect(cardStateLabel({ ...c, phase: "review", reviewSub: "stale" } as any)).toBe("review.stale");
+  expect(cardStateLabel({ ...c, phase: "working", workingSub: "error", errorKind: "crashed" } as any)).toBe("error.crashed");
   db.close();
 });

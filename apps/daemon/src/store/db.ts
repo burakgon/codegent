@@ -77,6 +77,15 @@ export const MIGRATIONS = [
    ALTER TABLE projects ADD COLUMN setup_script TEXT NOT NULL DEFAULT '';
    ALTER TABLE projects ADD COLUMN copy_globs TEXT NOT NULL DEFAULT '[]';
    ALTER TABLE projects ADD COLUMN mode TEXT NOT NULL DEFAULT 'auto';`,
+  // 11 — Part-4 event log (§8: "what happened while I slept", 30-day retention)
+  `CREATE TABLE event_log (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     ts INTEGER NOT NULL,
+     project_id TEXT NOT NULL,
+     card_id INTEGER,
+     kind TEXT NOT NULL,
+     title TEXT NOT NULL);
+   CREATE INDEX idx_event_log_project ON event_log(project_id, id);`,
 ];
 
 export function openDb(path: string): Database {

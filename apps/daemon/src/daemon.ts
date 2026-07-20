@@ -9,6 +9,7 @@ import { CodexAdapter } from "./agents/codex";
 import { UniversalAdapter } from "./agents/universal";
 import { Engine, bootReconcile, sweepSettingsDirs } from "./orchestrator/engine";
 import { events } from "./events";
+import { eventLogTracker, sweepEventLog } from "./store/eventlog";
 
 /** Boot the full daemon (extracted from the former index.ts entry so the CLI
  * can embed it). Returns the served URL + a graceful stop. Signal handlers are
@@ -80,6 +81,12 @@ export async function startDaemon(): Promise<{ url: string; token: string; stop:
   });
   engineRef = engine;
   engine.attachHooks(receiver);
+
+  // §8 event log: bus → durable rows; boot sweep + daily retention sweep.
+  sweepEventLog(db);
+  events.on(eventLogTracker(db));
+  const logSweep = setInterval(() => sweepEventLog(db), 24 * 3600_000);
+  (logSweep as unknown as { unref?: () => void }).unref?.();
 
   const srv = startServer(cfg, db, ptys, engine);
   console.log(`codegent daemon → ${srv.url}?t=${cfg.token}`);
