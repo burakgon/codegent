@@ -197,6 +197,9 @@ export interface EngineDeps {
   /** Worktree-creation seam used by deterministic race tests; production uses
    * the real manager directly. */
   createWorktree?: typeof createWorktree;
+  /** Retained-worktree re-materialization seam used by deterministic race
+   * tests; production runs the same prune/add path directly. */
+  rematerializeWorktree?: (project: Project, worktree: Worktree) => Promise<void>;
 }
 
 interface DispatchEnvelope {
@@ -470,7 +473,15 @@ export class Engine {
     let createdNew = false;
     let wired = false;
     try {
-      const r = await this.ensureWorktree(project, card);
+      const r = await this.ensureWorktree(
+        project,
+        card,
+        () => this.ownsStarting(card.id, generation),
+      );
+      if (!r) {
+        await this.abandonLaunch(attempt.id, dispatch.id, false, null);
+        return;
+      }
       wt = r.wt;
       createdNew = r.created;
       if (!this.ownsStarting(card.id, generation)) {
@@ -516,20 +527,47 @@ export class Engine {
   /** I1-preserving worktree resolution: reuse the card's retained ACTIVE
    * worktree (requeue pin); re-add a missing dir from the kept branch (VK
    * worktrees-as-cattle); else create fresh. */
-  private async ensureWorktree(project: Project, card: Card): Promise<{ wt: Worktree; created: boolean }> {
+  private async ensureWorktree(
+    project: Project,
+    card: Card,
+    ownsStart: () => boolean,
+  ): Promise<{ wt: Worktree; created: boolean } | null> {
     const db = this.deps.db;
     if (card.worktreeId) {
       const row = this.worktreeRow(card.worktreeId);
       if (row) {
         if (row.state === "active" && existsSync(row.path)) return { wt: row, created: false };
         await git(project.path, "worktree", "prune").catch(() => {});
-        await git(project.path, "worktree", "add", row.path, row.branch);
+        if (!ownsStart()) return null;
+        try {
+          if (this.deps.rematerializeWorktree) {
+            await this.deps.rematerializeWorktree(project, row);
+          } else {
+            await git(project.path, "worktree", "add", row.path, row.branch);
+          }
+        } catch (e) {
+          if (!ownsStart()) await this.restoreRetainedWorktree(project, row);
+          throw e;
+        }
+        if (!ownsStart()) {
+          await this.restoreRetainedWorktree(project, row);
+          return null;
+        }
         db.query(`UPDATE worktrees SET state = 'active' WHERE id = ?1`).run(row.id);
         return { wt: { ...row, state: "active" }, created: false };
       }
     }
     const create = this.deps.createWorktree ?? createWorktree;
     return { wt: await create(db, project, { cardId: card.id, slugSource: card.title }), created: true };
+  }
+
+  /** Undo only the directory re-added for a retained row. Its prior database
+   * state remains authoritative, and its kept branch is never deleted. */
+  private async restoreRetainedWorktree(project: Project, wt: Worktree): Promise<void> {
+    await git(project.path, "worktree", "remove", "--force", wt.path).catch(() => {
+      rmSync(wt.path, { recursive: true, force: true });
+    });
+    await git(project.path, "worktree", "prune").catch(() => {});
   }
 
   /** A superseded pre-wire launch owns the just-created worktree and must roll
@@ -929,7 +967,15 @@ export class Engine {
     let createdNew = false;
     let wired = false;
     try {
-      const r = await this.ensureWorktree(project, starting); // re-adds a pruned dir from the kept branch
+      const r = await this.ensureWorktree(
+        project,
+        starting,
+        () => this.ownsStarting(cardId, generation),
+      ); // re-adds a pruned dir from the kept branch
+      if (!r) {
+        await this.abandonLaunch(prior.id, dispatch.id, false, null);
+        return;
+      }
       wt = r.wt;
       createdNew = r.created;
       if (!this.ownsStarting(cardId, generation)) {

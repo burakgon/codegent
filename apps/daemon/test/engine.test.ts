@@ -132,6 +132,7 @@ async function makeWorld(opts?: {
   spawnTimeoutMs?: number;
   codex?: boolean;
   createWorktree?: EngineDeps["createWorktree"];
+  rematerializeWorktree?: EngineDeps["rematerializeWorktree"];
 }): Promise<World> {
   const db = openDb(":memory:");
   const repo = await makeRepo();
@@ -148,6 +149,7 @@ async function makeWorld(opts?: {
     clock: () => Date.now() + offset,
     timers: { spawnTimeoutMs: opts?.spawnTimeoutMs ?? 5_000, injectSettleMs: 1 },
     createWorktree: opts?.createWorktree,
+    rematerializeWorktree: opts?.rematerializeWorktree,
   });
   return { db, repo, project, ptys, adapter, codex, events, engine, advance: (ms) => (offset += ms) };
 }
@@ -524,6 +526,45 @@ test("cancel during slow worktree creation wins the generation and rolls back th
   )).toBe(false);
 }, 15_000);
 
+test("cancel during slow retained-worktree re-materialization preserves its archived state", async () => {
+  let materialized!: () => void;
+  let release!: () => void;
+  const worktreeMaterialized = new Promise<void>(resolve => (materialized = resolve));
+  const continueMaterialization = new Promise<void>(resolve => (release = resolve));
+  const w = await makeWorld({
+    rematerializeWorktree: async (project, wt) => {
+      await sh(project.path, "git", "worktree", "add", wt.path, wt.branch);
+      materialized();
+      await continueMaterialization;
+    },
+  });
+  const c = card(w, "retained worktree");
+  const dispatch = await toRunning(w, c);
+  const wt = wtRows(w.db)[0]!;
+  w.engine.handleSignal(dispatch, { s: "stop-failure" });
+  await w.engine.discard(c.id);
+  w.engine.undoDiscard(c.id);
+  expect(wtRows(w.db)[0]!.state).toBe("archived");
+  expect(existsSync(wt.path)).toBe(false);
+
+  const resume = w.engine.resume(c.id);
+  await worktreeMaterialized;
+  expect(existsSync(wt.path)).toBe(true);
+  await w.engine.cancel(c.id);
+  const eventsAfterCancel = w.events.length;
+
+  release();
+  await resume;
+
+  expect(getCard(w.db, c.id)!.phase).toBe("cancelled");
+  expect(wtRows(w.db)[0]!.state).toBe("archived");
+  expect(existsSync(wt.path)).toBe(false);
+  expect(await sh(w.repo, "git", "branch", "--list", wt.branch)).not.toBe("");
+  expect(w.events.slice(eventsAfterCancel).some(
+    event => event.t === "card" && event.card.id === c.id && event.card.workingSub === "starting",
+  )).toBe(false);
+}, 15_000);
+
 // ---------------------------------------------------------------------------
 // Heartbeat + runaway (fake clock only)
 // ---------------------------------------------------------------------------
@@ -687,6 +728,38 @@ test("sendBack with a DEAD session spawns a new dispatch with resume + the comme
   expect(ctx.attempt.id).toBe(getCard(w.db, c.id)!.attemptId!); // same attempt, same worktree
 });
 
+test("dead-session sendBack spawn failure refills the slot without an explicit tick", async () => {
+  const w = await makeWorld();
+  const a = card(w, "A respawn fails");
+  const dispatch = await toRunning(w, a);
+  w.engine.completeFromApi(dispatch);
+  await w.engine.idle();
+  w.ptys.die(agentSessionId(w, a.id));
+  const b = card(w, "B follows");
+  expect(getCard(w.db, b.id)!.phase).toBe("queued");
+
+  const spawn = w.adapter.spawn.bind(w.adapter);
+  let rejectNext = true;
+  w.adapter.spawn = async (ctx) => {
+    if (!rejectNext) return spawn(ctx);
+    rejectNext = false;
+    w.adapter.behavior = "reject";
+    try {
+      return await spawn(ctx);
+    } finally {
+      w.adapter.behavior = "ok";
+    }
+  };
+
+  await w.engine.sendBack(a.id, ["try again"]); // no engine.tick() follows
+  await w.engine.idle();
+
+  expect(getCard(w.db, a.id)!.workingSub).toBe("error");
+  expect(getCard(w.db, b.id)!.phase).toBe("working");
+  expect(getCard(w.db, b.id)!.workingSub).toBe("starting");
+  expect(w.adapter.spawns.at(-1)!.card.id).toBe(b.id);
+});
+
 // ---------------------------------------------------------------------------
 // Stop / requeue / cancel
 // ---------------------------------------------------------------------------
@@ -829,6 +902,22 @@ test("cancel kills sessions and archives the worktree (I3: archiving kills sessi
   expect(wtRows(w.db).find((x) => x.id === wtId)!.state).toBe("archived");
   const branches = await sh(w.repo, "git", "branch", "--list", `cg/${c.id}-*`);
   expect(branches).not.toBe(""); // branch kept (14-day policy) — only the dir is gone
+});
+
+test("cancel refills a workerLimit 1 slot without an explicit tick", async () => {
+  const w = await makeWorld();
+  const a = card(w, "A is cancelled");
+  const b = card(w, "B follows");
+  await toRunning(w, a);
+  expect(getCard(w.db, b.id)!.phase).toBe("queued");
+
+  await w.engine.cancel(a.id); // no engine.tick() follows
+  await w.engine.idle();
+
+  expect(getCard(w.db, a.id)!.phase).toBe("cancelled");
+  expect(getCard(w.db, b.id)!.phase).toBe("working");
+  expect(getCard(w.db, b.id)!.workingSub).toBe("starting");
+  expect(w.adapter.spawns.at(-1)!.card.id).toBe(b.id);
 });
 
 test("delete cleans a queued pinned worktree and its sessions before removing lifecycle rows", async () => {
