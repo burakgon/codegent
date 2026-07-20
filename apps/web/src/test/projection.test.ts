@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Card } from "@codegent/protocol";
-import { columnOf } from "../projection";
+import { columnOf, interruptedMessage } from "../projection";
 
 const base: Card = {
   id: 1,
@@ -50,4 +50,9 @@ describe("columnOf", () => {
   test("keeps queued start failures in Queue", () => {
     expect(columnOf({ ...base, errorKind: "start_failed" })).toBe("queue");
   });
+});
+
+test("interruptedMessage pluralizes a project banner", () => {
+  expect(interruptedMessage(1)).toBe("1 card interrupted — resume from its card");
+  expect(interruptedMessage(2)).toBe("2 cards interrupted — resume from their cards");
 });

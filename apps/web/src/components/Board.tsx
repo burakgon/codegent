@@ -2,7 +2,7 @@ import React, { useContext, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Card as CardT, Project } from "@codegent/protocol";
 import { api } from "../api";
-import { columnOf, type BoardColumn } from "../projection";
+import { columnOf, interruptedMessage, type BoardColumn } from "../projection";
 import { AppCtx } from "./Shell";
 import { CardView } from "./Card";
 import { Details } from "./Details";
@@ -33,8 +33,8 @@ export function Board({ project }: { project: Project }) {
     queryFn: () => api.get<CardT[]>(`/api/projects/${projectId}/cards`),
   });
   const interrupted = useQuery({
-    queryKey: ["interrupted"],
-    queryFn: () => api.get<{ cards: number[] }>("/api/state/interrupted"),
+    queryKey: ["interrupted", projectId],
+    queryFn: () => api.get<{ cards: number[] }>(`/api/state/interrupted?project=${encodeURIComponent(projectId)}`),
     refetchInterval: 5000,
   });
 
@@ -51,7 +51,7 @@ export function Board({ project }: { project: Project }) {
   const invalidate = () => {
     setNotice(null);
     void qc.invalidateQueries({ queryKey: ["cards", projectId] });
-    void qc.invalidateQueries({ queryKey: ["interrupted"] });
+    void qc.invalidateQueries({ queryKey: ["interrupted", projectId] });
     if (drawer) void qc.invalidateQueries({ queryKey: ["timeline", drawer.cardId] });
   };
   const fail = (_error: unknown) => setNotice("Action unavailable");
@@ -129,7 +129,7 @@ export function Board({ project }: { project: Project }) {
       {(interrupted.data?.cards.length ?? 0) > 0 && (
         <div data-interrupted-banner style={{ display: "flex", alignItems: "center", gap: 7, margin: "12px 16px 0", padding: "7px 10px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface)", color: "var(--amber)", fontSize: 11 }}>
           <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 2.5 14 13H2Z"/><path d="M8 6.2v3.1M8 11.5h.01"/></svg>
-          {interrupted.data!.cards.length} cards interrupted — resume from their cards
+          {interruptedMessage(interrupted.data!.cards.length)}
         </div>
       )}
 
@@ -140,8 +140,8 @@ export function Board({ project }: { project: Project }) {
             <section key={column.id} data-board-column={column.id} style={{ flex: 1, minWidth: column.id === "waiting" ? 205 : 190 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, minHeight: 20, marginBottom: 10, color: "var(--dim)", fontSize: 10, fontWeight: 650, letterSpacing: ".8px" }}>
                 {column.label}
-                <span style={{ padding: "1px 7px", borderRadius: 999, background: "var(--surface-2)", color: "var(--meta)", fontSize: 9.5 }}>{list.length}</span>
-                {column.id === "running" && <span data-slots style={{ marginLeft: "auto", padding: "1px 7px", border: "1px solid var(--border)", borderRadius: 999, background: "var(--surface)", color: activeSlots >= project.workerLimit ? "var(--amber)" : "var(--green)", fontSize: 9.5 }}>{activeSlots}/{project.workerLimit}</span>}
+                <span style={{ padding: "1px 7px", borderRadius: 999, background: "var(--surface-2)", color: "var(--meta)", fontSize: 9.5, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{list.length}</span>
+                {column.id === "running" && <span data-slots style={{ marginLeft: "auto", padding: "1px 7px", border: "1px solid var(--border)", borderRadius: 999, background: "var(--surface)", color: activeSlots >= project.workerLimit ? "var(--amber)" : "var(--green)", fontSize: 9.5, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{activeSlots}/{project.workerLimit}</span>}
               </div>
               {list.map((card, index) => (
                 <CardView key={card.id} card={card} column={column.id} now={now}

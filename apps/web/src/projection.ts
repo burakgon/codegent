@@ -13,3 +13,9 @@ export function columnOf(card: Card): BoardColumn | null {
   if (card.phase === "done") return "done";
   return null;
 }
+
+export function interruptedMessage(count: number): string {
+  return count === 1
+    ? "1 card interrupted — resume from its card"
+    : `${count} cards interrupted — resume from their cards`;
+}

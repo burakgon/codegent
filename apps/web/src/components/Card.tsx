@@ -19,7 +19,13 @@ type Props = {
   onDiscarded: (cardId: number) => void;
 };
 
-type IconName = "start" | "stop" | "question" | "permission" | "silent" | "error" | "review" | "details" | "resume" | "restart" | "discard" | "merge" | "send-back";
+type IconName = "start" | "stop" | "question" | "permission" | "silent" | "error" | "review" | "details" | "resume" | "restart" | "discard" | "cancel" | "merge" | "send-back";
+
+export function destructiveActionFor(card: Pick<Card, "phase">): "delete" | "cancel" | null {
+  if (card.phase === "queued" || card.phase === "done") return "delete";
+  if (card.phase === "working" || card.phase === "review") return "cancel";
+  return null;
+}
 
 function Icon({ name, size = 11 }: { name: IconName; size?: number }) {
   const common = { width: size, height: size, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
@@ -34,13 +40,14 @@ function Icon({ name, size = 11 }: { name: IconName; size?: number }) {
   if (name === "resume") return <svg {...common}><path d="M4 3.3v4h4" /><path d="M4.4 7.1a4.8 4.8 0 1 1 .8 4.2" /></svg>;
   if (name === "restart") return <svg {...common}><path d="M12 3.3v4H8" /><path d="M11.6 7.1a4.8 4.8 0 1 0-.8 4.2" /></svg>;
   if (name === "discard") return <svg {...common}><path d="M3.5 4.5h9M6 4.5v-2h4v2M5 6.5l.5 6h5l.5-6" /></svg>;
+  if (name === "cancel") return <svg {...common}><circle cx="8" cy="8" r="5.7" /><path d="m5.8 5.8 4.4 4.4M10.2 5.8l-4.4 4.4" /></svg>;
   if (name === "merge") return <svg {...common}><circle cx="4" cy="3.5" r="1.5" /><circle cx="4" cy="12.5" r="1.5" /><circle cx="12" cy="8" r="1.5" /><path d="M4 5v6M5.5 4.2C9 4.8 8.5 8 10.5 8" /></svg>;
   return <svg {...common}><path d="M3 4h6v4M9 4 3.5 9.5" /><path d="M6 12h7V5" /></svg>;
 }
 
-function Badge({ children, icon, color = "var(--meta)" }: { children: React.ReactNode; icon?: IconName; color?: string }) {
+function Badge({ children, icon, color = "var(--meta)", metric = false }: { children: React.ReactNode; icon?: IconName; color?: string; metric?: boolean }) {
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, minHeight: 19, padding: "1px 7px", border: "1px solid var(--border)", borderRadius: 999, background: "var(--surface-2)", color, fontSize: 10, fontWeight: 650, letterSpacing: ".45px", lineHeight: 1.2, textTransform: "uppercase" }}>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, minHeight: 19, padding: "1px 7px", border: "1px solid var(--border)", borderRadius: 999, background: "var(--surface-2)", color, fontSize: 10, fontWeight: metric ? 500 : 650, fontVariantNumeric: metric ? "tabular-nums" : undefined, letterSpacing: ".45px", lineHeight: 1.2, textTransform: "uppercase" }}>
       {icon && <Icon name={icon} />}{children}
     </span>
   );
@@ -69,14 +76,28 @@ export function CardView({
 }: Props) {
   const [menu, setMenu] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
-  const active = card.phase === "working" && (card.workingSub === "starting" || card.workingSub === "running");
+  const starting = card.phase === "working" && card.workingSub === "starting";
+  const running = card.phase === "working" && card.workingSub === "running";
+  const destructiveAction = destructiveActionFor(card);
 
-  const action = async (name: "start" | "stop" | "resume" | "restart" | "discard" | "merge") => {
+  const action = async (name: "start" | "stop" | "resume" | "restart" | "discard" | "merge" | "cancel") => {
     setBusy(name);
     try {
       await api.post(`/api/cards/${card.id}/${name}`, {});
       onChanged();
       if (name === "discard") onDiscarded(card.id);
+    } catch (error) {
+      onError(error);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const remove = async () => {
+    setBusy("delete");
+    try {
+      await api.del(`/api/cards/${card.id}`);
+      onChanged();
     } catch (error) {
       onError(error);
     } finally {
@@ -114,11 +135,12 @@ export function CardView({
         {column === "queue" && card.errorKind === "start_failed" && <Badge icon="error" color="var(--red)">Error</Badge>}
         {card.phase === "working" && card.workingSub === "error" && <Badge icon="error" color="var(--red)">Error</Badge>}
         {card.phase === "working" && card.workingSub === "stopped" && <Badge color="var(--meta)">Stopped</Badge>}
-        {active && card.inputKind === null && <Badge color="var(--green)">Running · {formatElapsed(now - card.updatedAt)}</Badge>}
-        {active && card.inputKind === "question" && <Badge icon="question" color="var(--amber)">Question</Badge>}
-        {active && card.inputKind === "permission" && <Badge icon="permission" color="var(--amber-soft)">Permission</Badge>}
-        {active && card.inputKind === "silent" && <Badge icon="silent" color="var(--amber-dim)">Silent</Badge>}
-        {active && card.inputKind !== null && <Badge color="var(--green)">Running · {formatElapsed(now - card.updatedAt)}</Badge>}
+        {starting && <Badge color="var(--ctrl)">Starting</Badge>}
+        {running && card.inputKind === null && <Badge color="var(--green)" metric>Running · {formatElapsed(now - card.updatedAt)}</Badge>}
+        {running && card.inputKind === "question" && <Badge icon="question" color="var(--amber)">Question</Badge>}
+        {running && card.inputKind === "permission" && <Badge icon="permission" color="var(--amber-soft)">Permission</Badge>}
+        {running && card.inputKind === "silent" && <Badge icon="silent" color="var(--amber-dim)">Silent</Badge>}
+        {running && card.inputKind !== null && <Badge color="var(--green)" metric>Running · {formatElapsed(now - card.updatedAt)}</Badge>}
         {card.round > 1 && card.phase !== "done" && <Badge color="var(--ctrl)">Round {card.round}</Badge>}
         {card.phase === "review" && card.reviewSub === "ready" && <Badge icon="review" color="var(--green)">Ready for review</Badge>}
         {card.phase === "review" && card.reviewSub !== "ready" && <Badge color="var(--ctrl)">{card.reviewSub ?? "Review"}</Badge>}
@@ -129,7 +151,7 @@ export function CardView({
       <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 9 }}>
         {column === "queue" && (
           <button type="button" onClick={toggleAuto} disabled={busy !== null}
-            style={{ minHeight: 27, padding: "4px 8px", border: "1px solid var(--border)", borderRadius: 999, background: "var(--bg)", color: card.auto ? "var(--green)" : "var(--meta)", font: "inherit", fontSize: 10, fontWeight: 650, letterSpacing: ".35px", cursor: busy ? "default" : "pointer" }}>
+            style={{ minHeight: 27, padding: "4px 8px", border: "1px solid var(--border)", borderRadius: 999, background: "var(--bg)", color: card.auto ? "var(--green)" : "var(--meta)", font: "inherit", fontSize: 10, fontWeight: 500, cursor: busy ? "default" : "pointer" }}>
             Auto:{card.auto ? "on" : "off"}
           </button>
         )}
@@ -157,6 +179,19 @@ export function CardView({
             style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", padding: "6px 8px", border: 0, borderRadius: 6, background: "var(--surface)", color: "var(--text-2)", font: "inherit", fontSize: 11, cursor: "pointer", textAlign: "left" }}>
             <Icon name="details" />Details
           </button>
+          {destructiveAction && (
+            <div style={{ marginTop: 4, paddingTop: 4, borderTop: "1px solid var(--hairline)" }}>
+              <button type="button" disabled={busy !== null} onClick={() => {
+                setMenu(false);
+                if (destructiveAction === "delete") void remove();
+                else void action("cancel");
+              }}
+                style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", padding: "6px 8px", border: 0, borderRadius: 6, background: "var(--surface)", color: busy ? "var(--dim)" : "var(--red)", font: "inherit", fontSize: 11, cursor: busy ? "default" : "pointer", textAlign: "left" }}>
+                <Icon name={destructiveAction === "delete" ? "discard" : "cancel"} />
+                {destructiveAction === "delete" ? "Delete" : "Cancel"}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

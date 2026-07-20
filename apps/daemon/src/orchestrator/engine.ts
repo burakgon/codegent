@@ -194,6 +194,12 @@ interface DispatchEnvelope {
   cardId: number;
 }
 
+interface AdapterIdentity {
+  cardId: number;
+  attemptId: number;
+  adapterSessionId: string;
+}
+
 const sanitizeInjection = (s: string): string =>
   s.replace(/\r\n?/g, "\n").replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "");
 
@@ -214,10 +220,12 @@ export class Engine {
   private timers: EngineTimers;
   /** Session-key (spawn-time dispatch id) → current live dispatch id. */
   private routes = new Map<string, string>();
-  /** Card → its live agent PTY id / spawn key / captured adapter session id. */
+  /** Card → its live agent PTY id / spawn key / current attempt identity. */
   private ptyByCard = new Map<number, string>();
   private spawnKeyByCard = new Map<number, string>();
-  private asidByCard = new Map<number, string>();
+  private asidByCard = new Map<number, AdapterIdentity>();
+  /** Early SessionStart identities wait for their exact spawn registration. */
+  private pendingAsidByDispatch = new Map<string, AdapterIdentity>();
   private ptyByDispatch = new Map<string, string>();
   /** Notice dedup: heartbeat warns once per (dispatch, progress-stamp); runaway once per dispatch. */
   private hbWarned = new Map<string, number>();
@@ -304,6 +312,15 @@ export class Engine {
       : null;
   }
 
+  /** A fresh conversation must not inherit either the current attempt's
+   * native identity or an early identity waiting on an older dispatch. */
+  private clearConversationIdentity(cardId: number): void {
+    this.asidByCard.delete(cardId);
+    for (const [dispatchId, identity] of this.pendingAsidByDispatch) {
+      if (identity.cardId === cardId) this.pendingAsidByDispatch.delete(dispatchId);
+    }
+  }
+
   // -------------------------------------------------------------------------
   // R1 — queue → start
   // -------------------------------------------------------------------------
@@ -352,6 +369,7 @@ export class Engine {
     const next = transition(card, { t: "start" }, this.deps.clock()); // IllegalTransition → 409
     // SYNC persist (before any await): R1's slot accounting must see it.
     const starting = this.persist(next.card);
+    this.clearConversationIdentity(cardId);
     // Stale-undo guard (T9 review rider): `start` is the only engine action
     // legal from queued, so any post-discard life consumes the undo stash —
     // a later start-failed return to queued must not let the old toast
@@ -454,13 +472,14 @@ export class Engine {
     this.ptyByCard.set(cardId, res.sessionMeta.id);
     this.ptyByDispatch.set(dispatchId, res.sessionMeta.id);
     this.spawnKeyByCard.set(cardId, dispatchId);
-    // SessionStart may beat adapter.spawn()'s paste-readiness work and arrive
-    // before the PTY id is registered. handleSignal retains the adapter id in
-    // memory; backfill it now so daemon-restart resume keeps the native
-    // conversation instead of falling through to a fresh-context launch.
-    const earlyAdapterSessionId = this.asidByCard.get(cardId);
-    if (earlyAdapterSessionId) {
-      setAdapterSessionId(this.deps.db, res.sessionMeta.id, earlyAdapterSessionId);
+    // SessionStart may beat adapter.spawn()'s paste-readiness work. Consume
+    // only the identity captured for THIS dispatch/attempt; a prior attempt's
+    // identity must never be copied into this new session row.
+    const earlyIdentity = this.pendingAsidByDispatch.get(dispatchId);
+    this.pendingAsidByDispatch.delete(dispatchId);
+    const env = this.envelope(dispatchId);
+    if (earlyIdentity && env && earlyIdentity.cardId === cardId && earlyIdentity.attemptId === env.attemptId) {
+      setAdapterSessionId(this.deps.db, res.sessionMeta.id, earlyIdentity.adapterSessionId);
     }
     const sess = this.deps.ptys.get(res.sessionMeta.id);
     if (!sess) return;
@@ -580,9 +599,19 @@ export class Engine {
     if (!card || card.attemptId !== env.attemptId) return; // envelope crossed attempts — stale
     switch (sig.s) {
       case "session-started": {
-        this.asidByCard.set(card.id, sig.adapterSessionId);
+        const identity: AdapterIdentity = {
+          cardId: card.id,
+          attemptId: env.attemptId,
+          adapterSessionId: sig.adapterSessionId,
+        };
+        this.asidByCard.set(card.id, identity);
         const ptyId = this.ptyByDispatch.get(id);
-        if (ptyId) setAdapterSessionId(db, ptyId, sig.adapterSessionId);
+        if (ptyId) {
+          this.pendingAsidByDispatch.delete(id);
+          setAdapterSessionId(db, ptyId, sig.adapterSessionId);
+        } else {
+          this.pendingAsidByDispatch.set(id, identity);
+        }
         const r = this.driveInternal(card, { t: "session-started" });
         if (r && r.card !== card) this.persist(r.card);
         return;
@@ -708,7 +737,8 @@ export class Engine {
   /** Adapter-native session id for a continuation: the in-process capture, or
    * (after a daemon restart emptied it) the persisted sessions-table copy. */
   private resumeSessionIdFor(cardId: number, attemptId: number): string | null {
-    return this.asidByCard.get(cardId)
+    const identity = this.asidByCard.get(cardId);
+    return (identity?.attemptId === attemptId ? identity.adapterSessionId : null)
       ?? ((this.deps.db.query(
         `SELECT adapter_session_id AS a FROM sessions
          WHERE attempt_id = ?1 AND adapter_session_id IS NOT NULL
@@ -809,6 +839,7 @@ export class Engine {
     const prior = card.attemptId !== null ? getAttempt(db, card.attemptId) : null;
     const next = transition(card, { t: "restart" }, this.deps.clock()); // 409 path
     const starting = this.persist(next.card); // SYNC — slot accounting
+    this.clearConversationIdentity(cardId);
     await this.killTrackedAgent(cardId);
     await this.launch(starting, project, adapter, { mode: prior?.mode, extraPrompt: RESTART_NOTE });
   }

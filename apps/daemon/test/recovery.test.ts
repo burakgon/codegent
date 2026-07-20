@@ -545,6 +545,41 @@ test("restart spawns a fresh conversation on the same worktree with the fixed no
   expect(getAttempt(w.db, ctx.attempt.id)!.mode).toBe("auto"); // mode carried onto it
 });
 
+test("fresh restart never backfills an old conversation id and ignores late SessionStart from the old dispatch", async () => {
+  const w = await makeWorld();
+  const c = card(w, "fresh identity");
+  const oldDispatch = await toRunning(w, c, "asid-old-conversation");
+  w.ptys.die(agentSessionId(w, c.id), 1);
+  await settle(w);
+
+  await w.engine.restart(c.id);
+  const restarted = getCard(w.db, c.id)!;
+  const newDispatch = dispatchOf(w.db, c.id);
+  const newSessionId = agentSessionId(w, c.id);
+  expect(newDispatch.id).not.toBe(oldDispatch);
+  expect((w.db.query(
+    `SELECT adapter_session_id AS id FROM sessions WHERE id = ?1`,
+  ).get(newSessionId) as { id: string | null }).id).toBeNull();
+
+  w.engine.handleSignal(oldDispatch, {
+    s: "session-started",
+    adapterSessionId: "asid-late-old-dispatch",
+  });
+  expect((w.db.query(
+    `SELECT adapter_session_id AS id FROM sessions WHERE id = ?1`,
+  ).get(newSessionId) as { id: string | null }).id).toBeNull();
+  expect(getCard(w.db, c.id)!.workingSub).toBe("starting");
+
+  // If a later resume needs this fresh attempt, it must fall back to context
+  // rather than resuming either identity from the superseded conversation.
+  w.ptys.die(newSessionId, 1);
+  await settle(w);
+  expect(getCard(w.db, c.id)!.errorKind).toBe("crashed");
+  await w.engine.resume(c.id);
+  expect(w.adapter.spawns.at(-1)!.resumeSessionId ?? null).toBeNull();
+  expect(w.adapter.spawns.at(-1)!.attempt.id).toBe(restarted.attemptId!);
+});
+
 // ---------------------------------------------------------------------------
 // Discard + undo
 // ---------------------------------------------------------------------------
@@ -679,7 +714,7 @@ test("boot order is load-bearing: reconcile-first makes the settings sweep total
 // HTTP routes — action mapping + interrupted banner data
 // ---------------------------------------------------------------------------
 
-test("recovery routes: 404 unknown / 409 illegal, discard responds {undo:true}, undo + resume flow, /api/state/interrupted lists ids only", async () => {
+test("recovery routes: 404 unknown / 409 illegal, discard responds {undo:true}, undo + resume flow, interrupted ids are project-scoped", async () => {
   const w = await makeWorld();
   const cfg = { port: 4930 + Math.floor(Math.random() * 60), dataDir: mkTmp(), token: "t9" };
   const srv = startServer(cfg, w.db, w.ptys as any, w.engine);
@@ -692,14 +727,20 @@ test("recovery routes: 404 unknown / 409 illegal, discard responds {undo:true}, 
     expect((await fetch(`${srv.url}api/cards/${q.id}/discard`, { ...T, method: "POST" })).status).toBe(409);
     expect((await fetch(`${srv.url}api/cards/${q.id}/undo-discard`, { ...T, method: "POST" })).status).toBe(409);
 
-    // Interrupted banner: seed one interrupted card via the boot sweep.
+    // Interrupted banner: seed one interrupted card in each of two projects.
     const ic = card(w, "interruptee", { auto: false });
     updateCard(w.db, ic.id, { phase: "working", workingSub: "running" });
+    const otherProject = createProject(w.db, { name: "Other", path: "/tmp", baseBranch: "main" });
+    const otherCard = createCard(w.db, { projectId: otherProject.id, title: "other interruptee", body: "", agent: "none" });
+    updateCard(w.db, otherCard.id, { phase: "working", workingSub: "running" });
     bootReconcile(w.db, { emit: () => {} }, Date.now());
-    const banner = await fetch(`${srv.url}api/state/interrupted`, T);
+    expect((await fetch(`${srv.url}api/state/interrupted`, T)).status).toBe(400);
+    const banner = await fetch(`${srv.url}api/state/interrupted?project=${encodeURIComponent(w.project.id)}`, T);
     expect(banner.status).toBe(200);
     const bannerBody = (await banner.json()) as any;
     expect(bannerBody).toEqual({ cards: [ic.id] }); // ids only — no text fields
+    const otherBanner = (await (await fetch(`${srv.url}api/state/interrupted?project=${encodeURIComponent(otherProject.id)}`, T)).json()) as any;
+    expect(otherBanner).toEqual({ cards: [otherCard.id] });
 
     // discard → {undo:true}; undo-discard → restored error card; resume → starting.
     const c = card(w, "errored");
@@ -718,7 +759,7 @@ test("recovery routes: 404 unknown / 409 illegal, discard responds {undo:true}, 
     expect(rr.status).toBe(200);
     expect(((await rr.json()) as any).workingSub).toBe("starting");
     // A resumed card leaves the banner set; the untouched one stays.
-    const after = (await (await fetch(`${srv.url}api/state/interrupted`, T)).json()) as any;
+    const after = (await (await fetch(`${srv.url}api/state/interrupted?project=${encodeURIComponent(w.project.id)}`, T)).json()) as any;
     expect(after.cards).toEqual([ic.id]);
   } finally {
     srv.stop();

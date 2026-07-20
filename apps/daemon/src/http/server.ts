@@ -97,13 +97,14 @@ async function handleApi(req: Request, url: URL, db: Database, ptys: PtyManager,
   }
 
   // ---- v0.2 orchestrator action routes (T8) ----
-  if ((x = m(/^\/api\/cards\/(\d+)\/(start|stop|merge|send-back)$/)) && req.method === "POST") {
+  if ((x = m(/^\/api\/cards\/(\d+)\/(start|stop|merge|send-back|cancel)$/)) && req.method === "POST") {
     const id = Number(x[1]);
     const action = x[2]!;
     try {
       if (action === "start") await engine.start(id);
       else if (action === "stop") engine.stop(id);
       else if (action === "merge") await engine.merge(id);
+      else if (action === "cancel") await engine.cancel(id);
       else {
         const comments = body.comments ?? [];
         if (!Array.isArray(comments) || comments.some((c: unknown) => typeof c !== "string")) {
@@ -134,9 +135,13 @@ async function handleApi(req: Request, url: URL, db: Database, ptys: PtyManager,
   // Interrupted banner data (boot reconciliation §4.3): card ids ONLY — the
   // web renders its own fixed one-liner, no text crosses this surface.
   if (url.pathname === "/api/state/interrupted" && req.method === "GET") {
+    const projectId = url.searchParams.get("project");
+    if (!projectId) return json({ error: "project is required" }, 400);
     const cards = db.query(
-      `SELECT id FROM cards WHERE phase = 'working' AND working_sub = 'error' AND error_kind = 'interrupted' ORDER BY id`,
-    ).all().map((r: any) => r.id as number);
+      `SELECT id FROM cards
+       WHERE project_id = ?1 AND phase = 'working' AND working_sub = 'error' AND error_kind = 'interrupted'
+       ORDER BY id`,
+    ).all(projectId).map((r: any) => r.id as number);
     return json({ cards });
   }
   // Timeline prose is deliberately pull-only and card-scoped: it never rides
@@ -170,8 +175,14 @@ async function handleApi(req: Request, url: URL, db: Database, ptys: PtyManager,
     return json(project);
   }
   if ((x = m(/^\/api\/cards\/(\d+)$/)) && req.method === "DELETE") {
-    deleteCard(db, Number(x[1]));
-    events.emit({ t: "cardDeleted", id: Number(x[1]) });
+    const id = Number(x[1]);
+    const card = getCard(db, id);
+    if (!card) return json({ error: "card not found" }, 404);
+    if (card.phase !== "queued" && card.phase !== "done") {
+      return json({ error: "only queued or done cards can be deleted" }, 409);
+    }
+    deleteCard(db, id);
+    events.emit({ t: "cardDeleted", id });
     return json({ ok: true });
   }
 

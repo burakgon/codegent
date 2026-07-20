@@ -5,8 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb, MIGRATIONS } from "../src/store/db";
 import { createProject } from "../src/store/projects";
-import { createCard, updateCard, listCards } from "../src/store/cards";
+import { createCard, updateCard, deleteCard, listCards } from "../src/store/cards";
 import { insertSession, listSessions } from "../src/store/sessions";
+import { appendTimeline } from "../src/store/timeline";
 import {
   createAttempt, createDispatch, completeDispatch,
   touchDispatchProgress, failRunningDispatches,
@@ -195,4 +196,27 @@ test("sessions round-trip kind/adapterSessionId/attemptId", () => {
   expect(shell!.kind).toBe("shell");
   expect(shell!.adapterSessionId).toBeNull();
   expect(shell!.attemptId).toBeNull();
+});
+
+test("deleteCard removes v0.2 attempt children before deleting a completed card", () => {
+  const doomedDb = openDb(":memory:");
+  const p = createProject(doomedDb, { name: "Delete", path: "/tmp/delete", baseBranch: "main" });
+  const c = createCard(doomedDb, { projectId: p.id, title: "Done", body: "", agent: "claude" });
+  const attempt = createAttempt(doomedDb, { cardId: c.id, worktreeId: null, beforeHead: null });
+  createDispatch(doomedDb, attempt.id);
+  appendTimeline(doomedDb, c.id, "progress", "finished");
+  insertSession(doomedDb, {
+    id: "delete-agent", projectId: p.id, kind: "agent", title: "agent",
+    cwd: "/tmp/delete", worktreeId: null, live: false, createdAt: Date.now(),
+    adapterSessionId: "asid-delete", attemptId: attempt.id,
+  });
+  updateCard(doomedDb, c.id, { phase: "done", attemptId: attempt.id });
+
+  expect(() => deleteCard(doomedDb, c.id)).not.toThrow();
+  expect(listCards(doomedDb, p.id)).toEqual([]);
+  expect((doomedDb.query(`SELECT COUNT(*) AS n FROM attempts`).get() as any).n).toBe(0);
+  expect((doomedDb.query(`SELECT COUNT(*) AS n FROM dispatches`).get() as any).n).toBe(0);
+  expect((doomedDb.query(`SELECT COUNT(*) AS n FROM timeline`).get() as any).n).toBe(0);
+  expect(listSessions(doomedDb, p.id)).toEqual([]);
+  doomedDb.close();
 });

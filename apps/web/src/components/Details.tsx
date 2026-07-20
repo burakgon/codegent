@@ -36,6 +36,11 @@ const fieldStyle: React.CSSProperties = {
   font: "inherit", fontSize: 11,
 };
 
+export function sendBackComments(value: string): string[] {
+  const comment = value.trim();
+  return comment ? [comment] : [];
+}
+
 export function Details({ card, projectId, sendBack, onClose, onChanged, onError }: Props) {
   const [title, setTitle] = useState(card.title);
   const [body, setBody] = useState(card.body);
@@ -79,10 +84,9 @@ export function Details({ card, projectId, sendBack, onClose, onChanged, onError
   };
 
   const submitSendBack = async () => {
-    if (!comments.trim()) return;
     setSending(true);
     try {
-      await api.post(`/api/cards/${card.id}/send-back`, { comments: [comments.trim()] });
+      await api.post(`/api/cards/${card.id}/send-back`, { comments: sendBackComments(comments) });
       onChanged();
       onClose();
     } catch (error) {
@@ -109,8 +113,8 @@ export function Details({ card, projectId, sendBack, onClose, onChanged, onError
       <div style={{ flex: 1, overflow: "auto", padding: 14 }}>
         <section>
           <div style={labelStyle}>Task</div>
-          <input value={title} onChange={event => setTitle(event.target.value)} aria-label="Card title" style={{ ...fieldStyle, marginTop: 6 }} />
-          <textarea value={body} onChange={event => setBody(event.target.value)} aria-label="Card body" rows={6}
+          <input id="card-title" name="title" value={title} onChange={event => setTitle(event.target.value)} aria-label="Card title" style={{ ...fieldStyle, marginTop: 6 }} />
+          <textarea id="card-body" name="body" value={body} onChange={event => setBody(event.target.value)} aria-label="Card body" rows={6}
             style={{ ...fieldStyle, display: "block", marginTop: 7, resize: "vertical", lineHeight: 1.5 }} />
           <button type="button" onClick={() => void save()} disabled={saving || !title.trim() || (title.trim() === card.title && body === card.body)}
             style={{ marginTop: 7, minHeight: 28, padding: "4px 10px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--surface)", color: saving ? "var(--dim)" : "var(--green)", font: "inherit", fontSize: 10, fontWeight: 500, cursor: saving ? "default" : "pointer" }}>
@@ -123,7 +127,7 @@ export function Details({ card, projectId, sendBack, onClose, onChanged, onError
             <div style={labelStyle}>Send back</div>
             <textarea autoFocus value={comments} onChange={event => setComments(event.target.value)} aria-label="Review comments" rows={5} placeholder="Review comments"
               style={{ ...fieldStyle, display: "block", marginTop: 6, resize: "vertical", lineHeight: 1.5 }} />
-            <button type="button" onClick={() => void submitSendBack()} disabled={sending || !comments.trim()}
+            <button type="button" onClick={() => void submitSendBack()} disabled={sending}
               style={{ marginTop: 7, minHeight: 28, padding: "4px 10px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--surface)", color: sending ? "var(--dim)" : "var(--violet-2)", font: "inherit", fontSize: 10, fontWeight: 500, cursor: sending ? "default" : "pointer" }}>
               {sending ? "Sending" : "Send comments"}
             </button>
@@ -133,7 +137,7 @@ export function Details({ card, projectId, sendBack, onClose, onChanged, onError
         <section style={{ marginTop: 18, paddingTop: 16, borderTop: "1px solid var(--surface-2)" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
             <div style={labelStyle}>Timeline</div>
-            <div style={{ color: "var(--dim)", fontSize: 10 }}>{timeline.data?.length ?? 0} entries</div>
+            <div style={{ color: "var(--dim)", fontSize: 10, fontWeight: 400, fontVariantNumeric: "tabular-nums" }}>{timeline.data?.length ?? 0} entries</div>
           </div>
           {timeline.isError && <div style={{ marginTop: 8, color: "var(--red)", fontSize: 11 }}>Timeline unavailable</div>}
           {!timeline.isError && (timeline.data?.length ?? 0) === 0 && <div style={{ marginTop: 8, color: "var(--dim)", fontSize: 11 }}>No timeline entries</div>}
@@ -142,7 +146,7 @@ export function Details({ card, projectId, sendBack, onClose, onChanged, onError
               <div key={entry.id} style={{ padding: "8px 9px", border: "1px solid var(--hairline)", borderRadius: 8, background: "var(--surface)" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                   <span style={{ color: entry.kind === "progress" ? "var(--green)" : entry.kind === "round" ? "var(--violet-2)" : "var(--ctrl)", fontSize: 10, fontWeight: 650, letterSpacing: ".45px", textTransform: "uppercase" }}>{entry.kind}</span>
-                  <span style={{ color: "var(--dim)", fontSize: 9.5 }}>{stamp(entry.ts)}</span>
+                  <span style={{ color: "var(--dim)", fontSize: 9.5, fontWeight: 400, fontVariantNumeric: "tabular-nums" }}>{stamp(entry.ts)}</span>
                 </div>
                 <div style={{ marginTop: 5, color: "var(--text-2)", fontSize: 11, lineHeight: 1.45, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{entry.text}</div>
               </div>
@@ -153,7 +157,7 @@ export function Details({ card, projectId, sendBack, onClose, onChanged, onError
         <section style={{ marginTop: 18, paddingTop: 16, borderTop: "1px solid var(--surface-2)" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
             <div style={labelStyle}>Session history</div>
-            <div style={{ color: "var(--dim)", fontSize: 10 }}>Attempt {card.attemptId ?? "—"}</div>
+            <div style={{ color: "var(--dim)", fontSize: 10, fontWeight: 400, fontVariantNumeric: "tabular-nums" }}>Attempt {card.attemptId ?? "—"}</div>
           </div>
           {sessions.isError && <div style={{ marginTop: 8, color: "var(--red)", fontSize: 11 }}>Sessions unavailable</div>}
           {!sessions.isError && history.length === 0 && <div style={{ marginTop: 8, color: "var(--dim)", fontSize: 11 }}>No agent sessions</div>}
@@ -162,7 +166,7 @@ export function Details({ card, projectId, sendBack, onClose, onChanged, onError
               <div key={session.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 9px", border: "1px solid var(--hairline)", borderRadius: 8, background: "var(--surface)" }}>
                 <span style={{ color: "var(--ctrl)", fontSize: 10, fontWeight: 650, letterSpacing: ".4px" }}>SESSION {history.length - index}</span>
                 <span style={{ marginLeft: "auto", color: session.live ? "var(--green)" : "var(--meta)", fontSize: 10, fontWeight: 650 }}>{session.live ? "LIVE" : "ENDED"}</span>
-                <span style={{ color: "var(--dim)", fontSize: 9.5 }}>{stamp(session.createdAt)}</span>
+                <span style={{ color: "var(--dim)", fontSize: 9.5, fontWeight: 400, fontVariantNumeric: "tabular-nums" }}>{stamp(session.createdAt)}</span>
               </div>
             ))}
           </div>

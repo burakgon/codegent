@@ -170,7 +170,7 @@ test("card timeline route returns ordered rows and 404s unknown cards", async ()
   expect(ghost.status).toBe(404);
 }, 15000);
 
-test("action routes map engine rejections: none-agent start 409, ghost card 404, illegal stop 409", async () => {
+test("action routes map engine rejections and expose legal cancel/delete paths", async () => {
   const p = await (await fetch(`${base}/projects`, { ...T, method: "POST", body: JSON.stringify({ name: "AC", path: "/tmp", baseBranch: "main", skipGitCheck: true }) })).json();
   const c = await (await fetch(`${base}/projects/${p.id}/cards`, { ...T, method: "POST", body: JSON.stringify({ title: "n" }) })).json(); // agent defaults to none
 
@@ -184,6 +184,23 @@ test("action routes map engine rejections: none-agent start 409, ghost card 404,
   expect(sendBack.status).toBe(409); // not in review.ready
   const badComments = await fetch(`${base}/cards/${c.id}/send-back`, { ...T, method: "POST", body: JSON.stringify({ comments: [1] }) });
   expect(badComments.status).toBe(400);
+  const cancelQueued = await fetch(`${base}/cards/${c.id}/cancel`, { ...T, method: "POST" });
+  expect(cancelQueued.status).toBe(409);
+
+  const review = await (await fetch(`${base}/projects/${p.id}/cards`, { ...T, method: "POST", body: JSON.stringify({ title: "review" }) })).json();
+  db.query(`UPDATE cards SET phase = 'review', review_sub = 'ready' WHERE id = ?1`).run(review.id);
+  const removeReview = await fetch(`${base}/cards/${review.id}`, { ...T, method: "DELETE" });
+  expect(removeReview.status).toBe(409);
+  const cancelReview = await fetch(`${base}/cards/${review.id}/cancel`, { ...T, method: "POST" });
+  expect(cancelReview.status).toBe(200);
+  expect((await cancelReview.json()).phase).toBe("cancelled");
+
+  const removeQueued = await fetch(`${base}/cards/${c.id}`, { ...T, method: "DELETE" });
+  expect(removeQueued.status).toBe(200);
+  const done = await (await fetch(`${base}/projects/${p.id}/cards`, { ...T, method: "POST", body: JSON.stringify({ title: "done" }) })).json();
+  db.query(`UPDATE cards SET phase = 'done' WHERE id = ?1`).run(done.id);
+  const removeDone = await fetch(`${base}/cards/${done.id}`, { ...T, method: "DELETE" });
+  expect(removeDone.status).toBe(200);
 }, 15000);
 
 test("terminal over ws: snapshot then live", async () => {
