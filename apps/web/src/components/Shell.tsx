@@ -9,6 +9,7 @@ import { Board } from "./Board";
 import { TerminalView } from "./TerminalView";
 import { DiffView } from "./DiffView";
 import { Palette } from "./Palette";
+import { createNotifier, notifyEnabled, setNotifyEnabled } from "../notify";
 
 export { AppCtx, type SessionFocus, type View } from "../appCtx";
 import { AppCtx, type SessionFocus, type View } from "../appCtx";
@@ -36,8 +37,12 @@ export function Shell() {
     setView("diff");
   }, []);
 
+  const [notifOn, setNotifOn] = useState(notifyEnabled);
+  const notifier = useMemo(() => createNotifier(), []);
+
   const socket = useMemo(() => connectWs(ev => {
     projectNotice(ev);
+    notifier.onEvent(ev);
     if (ev.t === "card" || ev.t === "cardDeleted") {
       qc.invalidateQueries({ queryKey: ["cards"] });
       // diff surfaces recompute on any card movement (round, update, merge)
@@ -108,8 +113,15 @@ export function Shell() {
                 </span>
               ))}
             </div>
+            <button type="button" aria-label={notifOn ? "Disable notifications" : "Enable notifications"}
+              onClick={() => void setNotifyEnabled(!notifOn).then(setNotifOn)}
+              style={{ marginLeft: "auto", display: "grid", placeItems: "center", width: 28, height: 28, padding: 0, border: "1px solid var(--border)", borderRadius: 6, background: "var(--surface)", color: notifOn ? "var(--violet-2)" : "var(--dim)", cursor: "pointer" }}>
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M8 2.2a4 4 0 0 1 4 4c0 3 1.3 4 1.3 4H2.7S4 9.2 4 6.2a4 4 0 0 1 4-4Z" /><path d="M6.8 12.8a1.3 1.3 0 0 0 2.4 0" />
+              </svg>
+            </button>
             <span onClick={() => setPaletteOpen(true)}
-              style={{ marginLeft: "auto", fontSize: 11, color: "var(--ctrl)", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, padding: "5px 11px", cursor: "pointer" }}>
+              style={{ fontSize: 11, color: "var(--ctrl)", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, padding: "5px 11px", cursor: "pointer" }}>
               K palette
             </span>
           </div>
