@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { CardSchema, type Card, type InputKind } from "@codegent/protocol";
 import {
-  IllegalTransition, transition, type Effect, type MachineEvent,
+  dispatchEffect, IllegalTransition, transition, type Effect, type MachineEvent,
 } from "../src/orchestrator/machine";
 
 const T0 = 1_000_000; // timestamps baked into every input card
@@ -356,4 +356,15 @@ test("effects arrays are fresh per call", () => {
   a.effects.push("push");
   const b = transition(mk({}), { t: "start" }, NOW);
   expect(b.effects).toEqual(["create-worktree", "spawn-agent"]);
+});
+
+test("effect dispatcher rejects a synthetic future effect instead of silently no-oping", () => {
+  let thrown: unknown;
+  try {
+    dispatchEffect("future-effect" as Effect);
+  } catch (error) {
+    thrown = error;
+  }
+  expect(thrown).toBeInstanceOf(Error);
+  expect((thrown as Error).message).toBe("unhandled machine effect: future-effect");
 });
