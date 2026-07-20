@@ -1,15 +1,21 @@
 import React from "react";
 import type { Project } from "@codegent/protocol";
 
-export function Sidebar({ projects, activeId, onSelect }: {
-  projects: Project[]; activeId: string | null; onSelect: (id: string) => void;
+export function Sidebar({ projects, activeId, onSelect, onAdd }: {
+  projects: Project[]; activeId: string | null; onSelect: (id: string) => void; onAdd?: () => void;
 }) {
   return (
     <div style={{ width: 228, background: "var(--bg-deep)", borderRight: "1px solid var(--surface-2)", padding: "14px 10px", display: "flex", flexDirection: "column" }}>
       <div style={{ fontSize: 13, fontWeight: 500, padding: "0 8px 16px" }}>
         code<span style={{ background: "linear-gradient(90deg,var(--violet-2),var(--cyan))", WebkitBackgroundClip: "text", color: "transparent" }}>gent</span>
       </div>
-      <div style={{ fontSize: 10, fontWeight: 650, letterSpacing: ".8px", color: "var(--dim)", padding: "0 8px 8px" }}>PROJECTS</div>
+      <div style={{ display: "flex", alignItems: "center", fontSize: 10, fontWeight: 650, letterSpacing: ".8px", color: "var(--dim)", padding: "0 8px 8px" }}>
+        PROJECTS
+        {onAdd && (
+          <button type="button" aria-label="Add project" onClick={onAdd}
+            style={{ marginLeft: "auto", width: 18, height: 18, padding: 0, border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg)", color: "var(--ctrl)", font: "inherit", fontSize: 11, cursor: "pointer", lineHeight: 1 }}>+</button>
+        )}
+      </div>
       {projects.map(p => (
         <div key={p.id} onClick={() => onSelect(p.id)}
           style={{ padding: "9px 10px", borderRadius: 8, cursor: "pointer",

@@ -76,6 +76,7 @@ export async function startDaemon(): Promise<{ url: string; token: string; stop:
     },
     events,
     clock: Date.now,
+    dataDir: cfg.dataDir,
   });
   engineRef = engine;
   engine.attachHooks(receiver);

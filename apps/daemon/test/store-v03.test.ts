@@ -47,6 +47,6 @@ test("migration 8 preserves a v7 database and defaults new worktree sync fields"
   expect(db.query("SELECT sync, behind_count FROM worktrees WHERE id = 'w1'").get())
     .toEqual({ sync: "clean", behind_count: 0 });
   expect((db.query("SELECT COUNT(*) AS n FROM card_file_reviews").get() as { n: number }).n).toBe(0);
-  expect((db.query("SELECT COUNT(*) AS n FROM _migrations").get() as { n: number }).n).toBe(10);
+  expect((db.query("SELECT COUNT(*) AS n FROM _migrations").get() as { n: number }).n).toBe(11);
   db.close();
 });

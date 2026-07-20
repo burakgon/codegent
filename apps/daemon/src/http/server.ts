@@ -1,8 +1,9 @@
 import type { Database } from "bun:sqlite";
 import { join, resolve, sep } from "node:path";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { CardSchema, MarkStateBodySchema, ProjectSchema, SessionMetaSchema, WorktreeSchema } from "@codegent/protocol";
-import { createProject, listProjects, setWorkerLimit } from "../store/projects";
+import { createProject, listProjects, setWorkerLimit, updateProjectSettings } from "../store/projects";
 import { createCard, updateCard, getCard, listCards } from "../store/cards";
 import { listTimeline } from "../store/timeline";
 import { createWorktree, getWorktree, listWorktrees, slug } from "../git/worktrees";
@@ -29,6 +30,7 @@ const CardPatchBody = CardSchema.pick({ title: true, body: true }).partial().str
 const CardAutoBody = CardSchema.pick({ auto: true }).strict();
 const CardAgentBody = CardSchema.pick({ agent: true }).strict();
 const ProjectCreateBody = ProjectSchema.pick({ name: true, path: true, baseBranch: true }).partial({ baseBranch: true });
+const ProjectSettingsBody = ProjectSchema.pick({ defaultAgent: true, setupScript: true, copyGlobs: true, mode: true }).partial().strict();
 const SessionCreateBody = SessionMetaSchema.pick({ title: true, cwd: true, worktreeId: true }).partial();
 const WorktreeCreateBody = WorktreeSchema.pick({ base: true }).partial();
 
@@ -44,6 +46,32 @@ async function resolveBaseBranch(path: string): Promise<string> {
   if (head) return head.replace(/^origin\//, "");
   // `||` not `??`: --show-current prints "" on a detached HEAD
   return (await run("branch", "--show-current")) || "main";
+}
+
+/** §8 daemon-side path autocomplete: HOME-anchored only (a remote browser
+ * must never browse the host filesystem at large), directories only, cap 20.
+ * Pure for tests. */
+export function pathComplete(q: string, home = homedir()): string[] {
+  const expanded = q === "" || q === "~" ? home + sep
+    : q.startsWith("~/") ? join(home, q.slice(2))
+    : q;
+  if (!resolve(expanded).startsWith(home)) return []; // outside home → nothing
+  const endsWithSep = expanded.endsWith(sep);
+  const parent = endsWithSep ? expanded.slice(0, -1) || sep : resolve(expanded, "..");
+  const prefix = endsWithSep ? "" : expanded.slice(parent.length).replace(/^\//, "");
+  if (!existsSync(parent) || !statSync(parent).isDirectory()) return [];
+  const out: string[] = [];
+  for (const name of readdirSync(parent)) {
+    if (name.startsWith(".") && !prefix.startsWith(".")) continue;
+    if (!name.toLowerCase().startsWith(prefix.toLowerCase())) continue;
+    const full = join(parent, name);
+    try {
+      if (!statSync(full).isDirectory()) continue;
+    } catch { continue; }
+    out.push(full);
+    if (out.length >= 20) break;
+  }
+  return out.sort();
 }
 
 // Engine rejections → HTTP: unknown card 404; machine-illegal or unstartable
@@ -75,10 +103,25 @@ async function handleApi(req: Request, url: URL, db: Database, ptys: PtyManager,
   if (url.pathname === "/api/projects" && req.method === "POST") {
     const v = ProjectCreateBody.safeParse(body);
     if (!v.success) return invalid(v.error);
+    // §8 "git clone URL" tab: path is the DESTINATION (created by the clone).
+    if (typeof body.clone === "string" && body.clone) {
+      if (existsSync(v.data.path)) return json({ error: "clone destination already exists" }, 400);
+      const c = Bun.spawn({ cmd: ["git", "clone", body.clone, v.data.path], stdout: "pipe", stderr: "pipe" });
+      if ((await c.exited) !== 0) return json({ error: "git clone failed" }, 400);
+    }
     if (!existsSync(v.data.path)) return json({ error: "path does not exist" }, 400);
     if (!body.skipGitCheck) {
       const p = Bun.spawn({ cmd: ["git", "rev-parse", "--git-dir"], cwd: v.data.path, stdout: "pipe", stderr: "pipe" });
-      if ((await p.exited) !== 0) return json({ error: "not a git repository" }, 400);
+      if ((await p.exited) !== 0) {
+        // §8 non-git folder → refuse with one-click "git init" (the sheet
+        // resubmits with gitInit:true).
+        if (body.gitInit === true) {
+          const g = Bun.spawn({ cmd: ["git", "init", "-b", "main"], cwd: v.data.path, stdout: "pipe", stderr: "pipe" });
+          if ((await g.exited) !== 0) return json({ error: "git init failed" }, 400);
+        } else {
+          return json({ error: "not a git repository", canInit: true }, 400);
+        }
+      }
     }
     const baseBranch = v.data.baseBranch ?? (await resolveBaseBranch(v.data.path));
     const project = createProject(db, { name: v.data.name, path: v.data.path, baseBranch });
@@ -279,6 +322,19 @@ async function handleApi(req: Request, url: URL, db: Database, ptys: PtyManager,
     events.emit({ t: "card", card: moved });
     engine.tick();
     return json(moved);
+  }
+  // §8 project settings (Part 4) — strict enum/string surface, engine-read.
+  if ((x = m(/^\/api\/projects\/([^/]+)\/settings$/)) && req.method === "PATCH") {
+    const v = ProjectSettingsBody.safeParse(body);
+    if (!v.success) return invalid(v.error);
+    const project = updateProjectSettings(db, x[1]!, v.data);
+    if (!project) return json({ error: "project not found" }, 404);
+    events.emit({ t: "project", project });
+    return json(project);
+  }
+  // §8 add-project sheet: daemon-side dir autocomplete (browser may be remote).
+  if (url.pathname === "/api/state/path-complete" && req.method === "GET") {
+    return json({ paths: pathComplete(url.searchParams.get("q") ?? "") });
   }
   // Worker limit (spec §5 — Settings-owned, default 1).
   if ((x = m(/^\/api\/projects\/([^/]+)$/)) && req.method === "PATCH") {

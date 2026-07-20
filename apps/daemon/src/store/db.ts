@@ -72,6 +72,11 @@ export const MIGRATIONS = [
      PRIMARY KEY (card_id, path));`,
   // 9 — Part-3 review fixes: the recorded local-merge commit (done-card diff identity)
   `ALTER TABLE cards ADD COLUMN merge_sha TEXT;`,
+  // 10 — Part-4 project settings: composer default, worktree bootstrap, execution mode
+  `ALTER TABLE projects ADD COLUMN default_agent TEXT;
+   ALTER TABLE projects ADD COLUMN setup_script TEXT NOT NULL DEFAULT '';
+   ALTER TABLE projects ADD COLUMN copy_globs TEXT NOT NULL DEFAULT '[]';
+   ALTER TABLE projects ADD COLUMN mode TEXT NOT NULL DEFAULT 'auto';`,
 ];
 
 export function openDb(path: string): Database {

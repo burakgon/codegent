@@ -33,6 +33,12 @@ export const ProjectSchema = z.object({
   // Orchestrator R1 slot count (spec §5, default 1). `.default` keeps old
   // payloads (pre-v0.2 envelopes/tests) parseable while the daemon always emits it.
   workerLimit: z.int().min(1).default(1),
+  // §8 per-project setup (Part 4): composer preselect, worktree bootstrap
+  // (copy-globs + setup script run on every fresh worktree), execution mode.
+  defaultAgent: CardAgent.nullable().default(null),
+  setupScript: z.string().default(""),
+  copyGlobs: z.array(z.string()).default([]),
+  mode: z.enum(["auto", "host", "ask"]).default("auto"),
 });
 export type Project = z.infer<typeof ProjectSchema>;
 

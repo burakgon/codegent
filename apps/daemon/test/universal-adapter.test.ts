@@ -159,7 +159,7 @@ test("A4: startup grace begins after task submission even when readiness consume
   });
 
   await adapter.spawn({
-    project: { id: "p", name: "P", path: "/repo", baseBranch: "main", createdAt: 1, workerLimit: 1 },
+    project: { id: "p", name: "P", path: "/repo", baseBranch: "main", createdAt: 1, workerLimit: 1, defaultAgent: null, setupScript: "", copyGlobs: [], mode: "auto" },
     card: { ...cardForSpawn, title: "Grace task", agent: "gemini" },
     attempt: { id: 2, cardId: 1, worktreeId: "w", seq: 1, status: "running", beforeHead: "abc", createdAt: 1 },
     dispatch: { id: "dispatch-grace", attemptId: 2, status: "running", lastProgressAt: null, createdAt: 1 },
@@ -237,7 +237,7 @@ test("UniversalAdapter spawns a bare Gemini PTY with isolated MCP config", async
   });
 
   const result = await adapter.spawn({
-    project: { id: "p", name: "P", path: "/repo", baseBranch: "main", createdAt: 1, workerLimit: 1 },
+    project: { id: "p", name: "P", path: "/repo", baseBranch: "main", createdAt: 1, workerLimit: 1, defaultAgent: null, setupScript: "", copyGlobs: [], mode: "auto" },
     card: { ...cardForSpawn, agent: "gemini" },
     attempt: { id: 2, cardId: 1, worktreeId: "w", seq: 1, status: "running", beforeHead: "abc", createdAt: 1 },
     dispatch: { id: "dispatch-1", attemptId: 2, status: "running", lastProgressAt: null, createdAt: 1 },

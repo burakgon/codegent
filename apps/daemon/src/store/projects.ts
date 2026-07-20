@@ -5,6 +5,10 @@ const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(
 const rowToProject = (r: any): Project => ({
   id: r.id, name: r.name, path: r.path, baseBranch: r.base_branch, createdAt: r.created_at,
   workerLimit: r.worker_limit ?? 1,
+  defaultAgent: r.default_agent ?? null,
+  setupScript: r.setup_script ?? "",
+  copyGlobs: JSON.parse(r.copy_globs ?? "[]"),
+  mode: r.mode ?? "auto",
 });
 
 export function createProject(db: Database, p: { name: string; path: string; baseBranch: string }): Project {
@@ -12,7 +16,23 @@ export function createProject(db: Database, p: { name: string; path: string; bas
   const now = Date.now();
   db.query(`INSERT INTO projects (id, name, path, base_branch, created_at) VALUES (?1, ?2, ?3, ?4, ?5)`)
     .run(id, p.name, p.path, p.baseBranch, now);
-  return { id, name: p.name, path: p.path, baseBranch: p.baseBranch, createdAt: now, workerLimit: 1 };
+  return {
+    id, name: p.name, path: p.path, baseBranch: p.baseBranch, createdAt: now, workerLimit: 1,
+    defaultAgent: null, setupScript: "", copyGlobs: [], mode: "auto",
+  };
+}
+
+/** §8 project settings (Part 4) — engine reads these on every worktree create. */
+export function updateProjectSettings(
+  db: Database, id: string,
+  patch: Partial<Pick<Project, "defaultAgent" | "setupScript" | "copyGlobs" | "mode">>,
+): Project | null {
+  const cur = getProject(db, id);
+  if (!cur) return null;
+  const next = { ...cur, ...patch };
+  db.query(`UPDATE projects SET default_agent = ?2, setup_script = ?3, copy_globs = ?4, mode = ?5 WHERE id = ?1`)
+    .run(id, next.defaultAgent, next.setupScript, JSON.stringify(next.copyGlobs), next.mode);
+  return getProject(db, id);
 }
 
 export function getProject(db: Database, id: string): Project | null {

@@ -206,3 +206,15 @@ describe("Details", () => {
     expect(html).toContain('data-session-link="agent-1"');
   });
 });
+
+test("P4: ProjectSheet renders both tabs, bootstrap fields, and the mode selector", async () => {
+  const { ProjectSheet } = await import("../components/ProjectSheet");
+  const html = renderToStaticMarkup(<ProjectSheet onDone={() => {}} />);
+  expect(html).toContain("Add a project");
+  expect(html).toContain("git clone");
+  expect(html).toContain("Worktree setup script");
+  expect(html).toContain("Copy into worktrees");
+  expect(html).toContain(">auto<");
+  expect(html).toContain(">host<");
+  expect(html).toContain("Base branch");
+});
