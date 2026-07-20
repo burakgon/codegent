@@ -1,6 +1,6 @@
 # codegent
 
-Browser-based AI coding-agent orchestrator. Pre-release — v0.1 core.
+Browser-based AI coding-agent orchestrator. Pre-release — v0.2 orchestration.
 
 ## Develop
 
@@ -16,12 +16,20 @@ git submodule update --init
 (cd vendor/ghostty-web && bun install && bun run build)
 ```
 
-Then:
+Then install and run the unchanged development commands:
 
 ```sh
 bun install
 bun run dev:daemon   # prints http://127.0.0.1:4666/?t=<token>
 bun run dev:web      # http://localhost:5666 — open it with ?t=<token>
 ```
+
+The v0.2 loop:
+
+1. Create a project from the absolute path to a Git repository.
+2. Add a Queue card with `claude` or `codex`; it auto-starts in a worktree with a live terminal.
+3. Answer questions in the terminal; when the agent calls `task_complete`, the card moves to In Review.
+4. Review the result, then choose **Merge** to move the card to Done.
+5. Each project has a worker limit of 1 by default; change `workerLimit` through `PATCH /api/projects/:id`.
 
 Tests: `bun test` · License: AGPL-3.0
